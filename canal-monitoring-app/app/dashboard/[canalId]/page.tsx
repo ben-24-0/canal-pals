@@ -1,7 +1,15 @@
 "use client";
 
 import { useParams } from "next/navigation";
-import { LineChart, Line, XAxis, YAxis, Tooltip } from "recharts";
+import {
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  Tooltip,
+  ResponsiveContainer,
+} from "recharts";
+
 import Navbar from "../../../src/components/Navbar";
 
 import canals from "../../../src/data/canals";
@@ -10,12 +18,20 @@ import CanalMap from "../../../src/components/map/CanalMap";
 
 export default function CanalDashboardPage() {
   const { canalId } = useParams();
+  const rawCanalId = canalId;
+  const resolvedCanalId = Array.isArray(rawCanalId)
+    ? rawCanalId[0]
+    : rawCanalId;
 
-  const canalFeature: any = canals.features.find(
-    (f: any) => f.properties.id === canalId
+  const canalFeature = canals.features.find(
+    (f) => f.properties.id === resolvedCanalId
   );
 
+
+
   const data = canalTimeSeries[canalId as string] || [];
+  console.log("Resolved canalId:", resolvedCanalId);
+  console.log("Chart data:", data);
 
   return (
     <div className="p-6 space-y-6">
@@ -34,15 +50,22 @@ export default function CanalDashboardPage() {
       </div>
 
       {/* Chart */}
-      <div className="border rounded p-4">
+      <div className="border rounded p-4 h-[350px]">
         <h2 className="font-medium mb-4">Flow Rate vs Time</h2>
 
-        <LineChart width={600} height={300} data={data}>
-          <XAxis dataKey="month" />
-          <YAxis />
-          <Tooltip />
-          <Line dataKey="flow" />
-        </LineChart>
+        <ResponsiveContainer width="100%" height="100%">
+          <LineChart data={data}>
+            <XAxis dataKey="month" />
+            <YAxis />
+            <Tooltip />
+            <Line
+              type="monotone"
+              dataKey="flow"
+              stroke="#2563eb"
+              strokeWidth={2}
+            />
+          </LineChart>
+        </ResponsiveContainer>
       </div>
     </div>
   );

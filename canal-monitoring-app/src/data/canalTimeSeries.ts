@@ -16,4 +16,11 @@ export const canalTimeSeries: Record<
     { month: "Apr", flow: 8 },
     { month: "May", flow: 10 },
   ],
+  "puthussery-kalady-canal": [
+    { month: "Jan", flow: 6 },
+    { month: "Feb", flow: 8 },
+    { month: "Mar", flow: 11 },
+    { month: "Apr", flow: 14 },
+    { month: "May", flow: 10 },
+  ],
 };
