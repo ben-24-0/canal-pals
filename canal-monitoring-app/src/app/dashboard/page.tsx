@@ -2,8 +2,8 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { canalMetrics } from "../../src/data/canalMetrics";
-import canals from "../../src/data/canals";
+import { canalMetrics } from "../../data/canalMetrics";
+import canals from "../../data/canals";
 
 export default function DashboardPage() {
   const router = useRouter();

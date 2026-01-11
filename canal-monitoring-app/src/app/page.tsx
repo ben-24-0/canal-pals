@@ -1,12 +1,13 @@
 "use client";
 
-import Navbar from "../src/components/Navbar";
-import WhatIsWebsite from "../src/components/WhatIsWebsite";
-import Footer from "../src/components/Footer";
-import OurSolution from "../src/components/OurSolution";
-import CanalMap from "@/components/map/CanalMap"
-import HomeCanalMap from "@/components/map/HomeCanalMap";
+import Navbar from "../components/Navbar";
+import OurSolution from "../components/OurSolution";
+import Footer from "../components/Footer";
+import WhatIsWebsite from "../components/WhatIsWebsite";
 
+
+import CanalMap from "@/components/map/CanalMap";
+import HomeCanalMap from "@/components/map/HomeCanalMap";
 
 export default function HomePage() {
   return (

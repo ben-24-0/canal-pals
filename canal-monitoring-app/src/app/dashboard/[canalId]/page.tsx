@@ -10,11 +10,11 @@ import {
   ResponsiveContainer,
 } from "recharts";
 
-import Navbar from "../../../src/components/Navbar";
+import Navbar from "../../../components/Navbar";
 
-import canals from "../../../src/data/canals";
-import { canalTimeSeries } from "../../../src/data/canalTimeSeries";
-import CanalMap from "../../../src/components/map/CanalMap";
+import canals from "../../../data/canals";
+import { canalTimeSeries } from "../../../data/canalTimeSeries";
+import CanalMap from "../../../components/map/CanalMap";
 
 export default function CanalDashboardPage() {
   const { canalId } = useParams();
@@ -26,8 +26,6 @@ export default function CanalDashboardPage() {
   const canalFeature = canals.features.find(
     (f) => f.properties.id === resolvedCanalId
   );
-
-
 
   const data = canalTimeSeries[canalId as string] || [];
   console.log("Resolved canalId:", resolvedCanalId);
