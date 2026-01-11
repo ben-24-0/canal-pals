@@ -7,11 +7,11 @@ import {
   Layer,
   Popup,
   MapLayerMouseEvent,
-  r,
 } from "react-map-gl/maplibre";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { canalMetrics } from "../../data/canalMetrics";
 import canals from "../../data/canals";
+import type { FeatureCollection, Geometry, GeoJsonProperties } from "geojson";
 import { osmStyle } from "../../lib/mapConfig";
 
 type HoverInfo = {
@@ -70,7 +70,7 @@ export default function HomeCanalMap() {
         onMouseMove={handleHover}
         onClick={handleClick}
       >
-        <Source id="canals" type="geojson" data={canals}>
+        <Source id="canals" type="geojson" data={canals as FeatureCollection<Geometry, GeoJsonProperties>}>
           <Layer
             id="canal-points"
             type="circle"

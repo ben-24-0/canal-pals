@@ -31,10 +31,20 @@ export default function CanalDashboardPage() {
   console.log("Resolved canalId:", resolvedCanalId);
   console.log("Chart data:", data);
 
+  if (!canalFeature) {
+    return (
+      <div className="p-6 space-y-6">
+        <Navbar />
+        <h1 className="text-xl font-semibold text-red-600">Canal not found</h1>
+        <p>The requested canal does not exist.</p>
+      </div>
+    );
+  }
+
   return (
     <div className="p-6 space-y-6">
       <Navbar />
-      <h1 className="text-xl font-semibold">{canalFeature?.properties.name}</h1>
+      <h1 className="text-xl font-semibold">{canalFeature.properties.name}</h1>
 
       {/* Map */}
       <div className="h-[40vh] border rounded">
