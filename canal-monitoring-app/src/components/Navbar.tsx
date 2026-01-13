@@ -13,7 +13,7 @@ export default function Navbar() {
           <Link href="/" className="hover:text-black">
             Home
           </Link>
-          {isHome && (
+          {/* {isHome && (
             <>
               <a href="#about" className="hover:text-black">
                 About
@@ -22,7 +22,7 @@ export default function Navbar() {
                 Features
               </a>
             </>
-          )}
+          )} */}
           <Link href="/dashboard" className="hover:text-black">
             Dashboard
           </Link>

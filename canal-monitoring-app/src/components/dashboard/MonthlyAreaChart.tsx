@@ -14,6 +14,8 @@ interface MonthlyAreaChartProps {
 }
 
 export default function MonthlyAreaChart({ data, color = "#2323FF" }: MonthlyAreaChartProps) {
+  // Detect if data is hourly (24h) by checking if day is a string with ":"
+  const isHourly = data.length > 0 && typeof data[0].day === "string" && data[0].day.includes(":");
   return (
     <div className="w-full h-[300px] bg-card rounded-xl shadow border border-primary p-4">
       <h2 className="font-semibold text-lg mb-2 text-primary">Monthly Summary</h2>
@@ -25,7 +27,7 @@ export default function MonthlyAreaChart({ data, color = "#2323FF" }: MonthlyAre
               <stop offset="100%" stopColor={color} stopOpacity={0.05} />
             </linearGradient>
           </defs>
-          <XAxis dataKey="day" stroke={color} fontSize={12} />
+          <XAxis dataKey="day" stroke={color} fontSize={12} interval={isHourly ? 2 : 0} />
           <YAxis stroke={color} fontSize={12} />
           <Tooltip contentStyle={{ background: "#fff", borderColor: color, color: color }} />
           <Area

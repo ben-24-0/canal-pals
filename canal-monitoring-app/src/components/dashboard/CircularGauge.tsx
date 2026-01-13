@@ -15,7 +15,7 @@ export default function CircularGauge({ value, label, color = "#2323FF", unit = 
   const progress = Math.max(0, Math.min(100, value));
   const offset = circumference * (1 - progress / 100);
   return (
-    <div style={{ width: size, height: size, display: "inline-block" }}>
+    <div style={{ width: size, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
       <svg width={size} height={size}>
         <circle
           cx={size / 2}
@@ -35,7 +35,7 @@ export default function CircularGauge({ value, label, color = "#2323FF", unit = 
           strokeDasharray={circumference}
           strokeDashoffset={offset}
           strokeLinecap="round"
-          style={{ transition: "stroke-dashoffset 0.5s" , padding:"20px"}}
+          style={{ transition: "stroke-dashoffset 0.5s" }}
         />
         <text
           x="50%"
@@ -46,11 +46,10 @@ export default function CircularGauge({ value, label, color = "#2323FF", unit = 
           fill={color}
           fontWeight="bold"
         >
-          {value}
-          {unit}
+          {value}{unit}
         </text>
       </svg>
-      <div style={{ textAlign: "center", marginTop: 8, color, fontWeight: "bold" }}>{label}</div>
+      <div style={{ textAlign: "center", marginTop: 12, color, fontWeight: "bold", fontSize: "1em", lineHeight: 1.2 }}>{label}</div>
     </div>
   );
 }
