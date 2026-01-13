@@ -50,7 +50,23 @@ export default function DashboardPage() {
                   onClick={() => router.push(`/dashboard/${canal.id}`)}
                   className="cursor-pointer hover:bg-primary/10 transition"
                 >
-                  <td className="p-4 font-semibold text-primary">{canal.name}</td>
+                  <td className="p-4 font-semibold text-primary flex items-center gap-2 group" title="Click for details">
+                    {canal.name}
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="#2323FF"
+                      strokeWidth="2.5"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      className="w-5 h-5 ml-1 opacity-80 group-hover:opacity-100 group-hover:scale-110 transition-transform"
+                      aria-hidden="true"
+                    >
+                      <path d="M7 17L17 7" />
+                      <path d="M7 7h10v10" />
+                    </svg>
+                  </td>
                   <td>
                     <span
                       className={
