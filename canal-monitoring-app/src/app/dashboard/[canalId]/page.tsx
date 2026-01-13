@@ -366,13 +366,12 @@ export default function CanalDashboardPage() {
           {/* Secondary Metrics */}
           <div className="w-full flex flex-row gap-6 mt-4  pb-5 items-stretch">
             <div className="flex-1 bg-card rounded-xl shadow border border-primary pb-7 flex flex-col items-center justify-center min-w-45">
-              <CircularGauge
-                className="p-2"
-                value={dailyAvg}
-                label="Daily Avg Flow"
-                color="#00E5FF"
-                unit=" m³/s"
-              />
+               <CircularGauge
+                 value={dailyAvg}
+                 label="Daily Avg Flow"
+                 color="#00E5FF"
+                 unit=" m³/s"
+               />
             </div>
             <div className="flex-1 bg-card rounded-xl shadow border border-primary pt-6 mb-0 pb-15 flex flex-col items-center justify-center min-w-45">
               <CircularGauge

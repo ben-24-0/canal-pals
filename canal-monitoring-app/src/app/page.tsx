@@ -15,9 +15,9 @@ export default function HomePage() {
       <Navbar />
 
       {/* Map Section */}
-      <section className="w-full min-h-[300px] md:h-[60vh] border-b-4 border-primary flex items-center justify-center">
+      <section className="w-full min-h-75 md:h-[60vh] border-b-4 border-primary flex items-center justify-center">
         <div className="w-full h-full rounded-xl shadow-lg bg-card flex items-center justify-center">
-          <div className="w-full h-[300px] md:h-[50vh] lg:h-[60vh]">
+          <div className="w-full h-75 md:h-[50vh] lg:h-[60vh]">
             <HomeCanalMap />
           </div>
         </div>

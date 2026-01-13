@@ -9,7 +9,7 @@ import {
 } from "recharts";
 
 interface MonthlyAreaChartProps {
-  data: { day: number; value: number }[];
+  data: { day: number | string; value: number }[];
   color?: string;
 }
 
@@ -17,7 +17,7 @@ export default function MonthlyAreaChart({ data, color = "#2323FF" }: MonthlyAre
   // Detect if data is hourly (24h) by checking if day is a string with ":"
   const isHourly = data.length > 0 && typeof data[0].day === "string" && data[0].day.includes(":");
   return (
-    <div className="w-full h-[300px] bg-card rounded-xl shadow border border-primary p-4">
+    <div className="w-full h-75 bg-card rounded-xl shadow border border-primary p-4">
       <h2 className="font-semibold text-lg mb-2 text-primary">Monthly Summary</h2>
       <ResponsiveContainer width="100%" height="85%">
         <AreaChart data={data} margin={{ top: 16, right: 16, left: 0, bottom: 0 }}>
