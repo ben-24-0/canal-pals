@@ -11,16 +11,27 @@ import HomeCanalMap from "@/components/map/HomeCanalMap";
 
 export default function HomePage() {
   return (
-    <div className="min-h-screen flex flex-col">
+    <div className="min-h-screen flex flex-col bg-background text-foreground">
       <Navbar />
 
       {/* Map Section */}
-      <section className="h-[60vh] border-b MB-7 overflow-auto">
-        <HomeCanalMap />
+      <section className="w-full min-h-[300px] md:h-[60vh] border-b-4 border-primary flex items-center justify-center">
+        <div className="w-full h-full rounded-xl shadow-lg bg-card flex items-center justify-center">
+          <div className="w-full h-[300px] md:h-[50vh] lg:h-[60vh]">
+            <HomeCanalMap />
+          </div>
+        </div>
       </section>
 
-      <WhatIsWebsite />
-      <OurSolution />
+      <div className="flex flex-col md:flex-row gap-8 px-8 py-12 items-center justify-center">
+        <div className="w-full md:w-1/2 bg-card p-8 rounded-xl shadow-md border border-primary">
+          <WhatIsWebsite />
+        </div>
+        <div className="w-full md:w-1/2 bg-card p-8 rounded-xl shadow-md border border-primary">
+          <OurSolution />
+        </div>
+      </div>
+
       <Footer />
     </div>
   );

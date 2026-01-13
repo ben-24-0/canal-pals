@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import Navbar from "../../components/Navbar";
 import { canalMetrics } from "../../data/canalMetrics";
 import canals from "../../data/canals";
 
@@ -18,54 +19,55 @@ export default function DashboardPage() {
     .filter((c) => c.name.toLowerCase().includes(search.toLowerCase()));
 
   return (
-    <div className="p-6 space-y-6">
-      <h1 className="text-xl font-semibold">Canal Hub Dashboard</h1>
+    <div className="min-h-screen bg-background text-foreground flex flex-col items-center">
+      <Navbar />
+      <div className="w-full max-w-5xl mx-auto px-4 pt-24 flex flex-col items-center">
+        <h1 className="text-3xl font-bold mb-8 text-primary">Canal Hub Dashboard</h1>
 
-      {/* Search */}
-      <input
-        type="text"
-        placeholder="Search canal..."
-        value={search}
-        onChange={(e) => setSearch(e.target.value)}
-        className="border px-3 py-2 rounded w-64"
-      />
+        {/* Search */}
+        <input
+          type="text"
+          placeholder="Search canal..."
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className="border-2 border-primary px-4 py-2 rounded-lg w-72 mb-8 bg-card text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+        />
 
-      {/* Table */}
-      <div className="border rounded overflow-hidden">
-        <table className="w-full text-sm">
-          <thead className="bg-gray-100 text-left">
-            <tr>
-              <th className="p-3">Canal</th>
-              <th>Status</th>
-              <th>Flow Rate (m³/s)</th>
-              <th>Speed (m/s)</th>
-            </tr>
-          </thead>
-          <tbody>
-            {canalList.map((canal) => (
-              <tr
-                key={canal.id}
-                onClick={() => router.push(`/dashboard/${canal.id}`)}
-                className="cursor-pointer hover:bg-gray-50"
-              >
-                <td className="p-3 font-medium">{canal.name}</td>
-                <td>
-                  <span
-                    className={
-                      canal.metrics.status === "FLOWING"
-                        ? "text-green-600"
-                        : "text-red-600"
-                    }
-                  >
-                    {canal.metrics.status}
-                  </span>
-                </td>
-                <td>{canal.metrics.flowRate}</td>
-                <td>{canal.metrics.speed}</td>
+        {/* Table */}
+        <div className="w-full max-w-3xl bg-card rounded-xl shadow-lg border border-primary overflow-hidden">
+          <table className="w-full text-md">
+            <thead className="bg-primary text-white">
+              <tr>
+                <th className="p-4">Canal</th>
+                <th>Status</th>
+                <th>Discharge (m³/s)</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {canalList.map((canal) => (
+                <tr
+                  key={canal.id}
+                  onClick={() => router.push(`/dashboard/${canal.id}`)}
+                  className="cursor-pointer hover:bg-primary/10 transition"
+                >
+                  <td className="p-4 font-semibold text-primary">{canal.name}</td>
+                  <td>
+                    <span
+                      className={
+                        canal.metrics.status === "FLOWING"
+                          ? "text-green-600 font-bold"
+                          : "text-red-600 font-bold"
+                      }
+                    >
+                      {canal.metrics.status}
+                    </span>
+                  </td>
+                  <td className="text-center">{canal.metrics.speed}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   );
