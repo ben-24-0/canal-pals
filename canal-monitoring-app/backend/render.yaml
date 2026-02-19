@@ -1,0 +1,48 @@
+# Render Deployment Configuration
+
+version: "1"
+
+services:
+  # Main API Service
+  - type: web
+    name: canal-monitoring-api
+    env: node
+    plan: starter
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
+      - key: MONGODB_URI
+        sync: false # Set this in Render dashboard
+      - key: FRONTEND_URL
+        sync: false # Set this in Render dashboard
+      - key: JWT_SECRET
+        generateValue: true
+      - key: API_VERSION
+        value: "1.0.0"
+      - key: LOG_LEVEL
+        value: info
+      - key: RATE_LIMIT_WINDOW_MS
+        value: "900000"
+      - key: RATE_LIMIT_MAX_REQUESTS
+        value: "100"
+      - key: ESP32_UPDATE_INTERVAL
+        value: "300"
+      - key: DEVICE_REGISTRATION_TIMEOUT
+        value: "3600"
+      - key: DATA_RETENTION_DAYS
+        value: "30"
+
+databases:
+  # MongoDB Database (if using Render's managed MongoDB)
+  - name: canal-monitoring-db
+    plan: starter
+
+# Build settings
+build:
+  commands:
+    - npm ci --only=production
+    - npm run build --if-present

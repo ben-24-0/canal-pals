@@ -12,172 +12,96 @@ import {
 import Navbar from "../../../components/Navbar";
 
 import canals from "../../../data/canals";
-import { canalTimeSeries } from "../../../data/canalTimeSeries";
 import CanalMap from "../../../components/map/CanalMap";
 import CircularGauge from "../../../components/dashboard/CircularGauge";
 import MonthlyAreaChart from "../../../components/dashboard/MonthlyAreaChart";
-import React, { useState } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { useParams } from "next/navigation";
-// If you need useParams, import it from 'next/navigation' instead:
-// import { useParams } from 'next/navigation';
 import Footer from "../../../components/Footer";
+
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
+const POLL_INTERVAL = 3000; // ms
+
+type LiveReading = {
+  status: string;
+  flowRate: number;
+  speed: number;
+  discharge: number;
+  waterLevel?: number;
+  temperature?: number;
+  pH?: number;
+  batteryLevel?: number;
+  signalStrength?: number;
+  timestamp?: string;
+};
 
 export default function CanalDashboardPage() {
   const { canalId } = useParams();
-  const rawCanalId = canalId;
-  const resolvedCanalId = Array.isArray(rawCanalId)
-    ? rawCanalId[0]
-    : rawCanalId;
+  const resolvedCanalId = Array.isArray(canalId) ? canalId[0] : canalId;
 
   const canalFeature = canals.features.find(
-    (f) => f.properties.id === resolvedCanalId
+    (f) => f.properties.id === resolvedCanalId,
   );
 
-  // Unique mock data per canal
-  // Live fluctuating discharge value
-  const [liveDischarge, setLiveDischarge] = React.useState(0);
-  let baseDischarge = 0,
-    battery = 0,
-    signal = 0,
-    lastUpdated = "2026-01-13 14:32",
-    systemStatus = "Online";
-
-  // Stable, precomputed time series for each canal
-  // Add 24-hour and 7/30-day datasets for each canal, centered around baseDischarge
-  const hourlyDataMap: Record<string, { hour: number; value: number }[]> = {
-    "peechi-canal": Array.from({ length: 24 }, (_, i) => ({
-      hour: i,
-      value: Math.round(
-        520 + 20 * Math.sin((i / 24) * 2 * Math.PI) + (i % 2 === 0 ? 10 : -10)
-      ),
-    })),
-    "canoli-canal": Array.from({ length: 24 }, (_, i) => ({
-      hour: i,
-      value: Math.round(
-        110 + 8 * Math.sin((i / 24) * 2 * Math.PI) + (i % 2 === 0 ? 3 : -3)
-      ),
-    })),
-    "puthussery-kalady-canal": Array.from({ length: 24 }, (_, i) => ({
-      hour: i,
-      value: Math.round(
-        340 + 15 * Math.sin((i / 24) * 2 * Math.PI) + (i % 2 === 0 ? 6 : -6)
-      ),
-    })),
-    unknown: Array.from({ length: 24 }, (_, i) => ({ hour: i, value: 0 })),
-  };
-  const monthlyDataMap: Record<string, { day: number; value: number }[]> = {
-    "peechi-canal": Array.from({ length: 31 }, (_, i) => ({
-      day: i + 1,
-      value: Math.round(
-        520 + 40 * Math.sin((i / 31) * 2 * Math.PI) + (i % 2 === 0 ? 15 : -15)
-      ),
-    })),
-    "canoli-canal": Array.from({ length: 31 }, (_, i) => ({
-      day: i + 1,
-      value: Math.round(
-        110 + 15 * Math.sin((i / 31) * 2 * Math.PI) + (i % 2 === 0 ? 5 : -5)
-      ),
-    })),
-    "puthussery-kalady-canal": Array.from({ length: 31 }, (_, i) => ({
-      day: i + 1,
-      value: Math.round(
-        340 + 30 * Math.sin((i / 31) * 2 * Math.PI) + (i % 2 === 0 ? 10 : -10)
-      ),
-    })),
-    unknown: Array.from({ length: 31 }, (_, i) => ({ day: i + 1, value: 0 })),
-  };
-
-  if (resolvedCanalId === "peechi-canal") {
-    baseDischarge = 520;
-    battery = 87;
-    signal = 73;
-    lastUpdated = "2026-01-13 14:32";
-    systemStatus = "Online";
-  } else if (resolvedCanalId === "canoli-canal") {
-    baseDischarge = 110;
-    battery = 62;
-    signal = 55;
-    lastUpdated = "2026-01-13 13:50";
-    systemStatus = "Online";
-  } else if (resolvedCanalId === "puthussery-kalady-canal") {
-    baseDischarge = 340;
-    battery = 78;
-    signal = 68;
-    lastUpdated = "2026-01-13 14:10";
-    systemStatus = "Online";
-  } else {
-    // fallback for unknown canal
-    baseDischarge = 0;
-    battery = 0;
-    signal = 0;
-    lastUpdated = "2026-01-13 00:00";
-    systemStatus = "Offline";
-  }
-
-  // Memoize and sync graph data for each trend range
-  const [trendRange, setTrendRange] = useState("30d");
-  // For 24h, map to { day: string, value } with hour labels for X axis
-  const getTrendData = () => {
-    if (trendRange === "24h") {
-      const hourly =
-        hourlyDataMap[resolvedCanalId as keyof typeof hourlyDataMap] ||
-        hourlyDataMap.unknown;
-      return hourly.map(({ hour, value }) => ({ day: `${hour}:00`, value }));
-    }
-    const data =
-      monthlyDataMap[resolvedCanalId as keyof typeof monthlyDataMap] ||
-      monthlyDataMap.unknown;
-    if (trendRange === "7d") return data.slice(-7);
-    return data;
-  };
-  const trendData = getTrendData();
-
-  // Calculate daily and monthly averages from the trend data
-  const hourlyRaw =
-    hourlyDataMap[resolvedCanalId as keyof typeof hourlyDataMap] ||
-    hourlyDataMap.unknown;
-  const monthlyRaw =
-    monthlyDataMap[resolvedCanalId as keyof typeof monthlyDataMap] ||
-    monthlyDataMap.unknown;
-  const dailyAvg = Math.round(
-    hourlyRaw.reduce((sum, d) => sum + d.value, 0) / hourlyRaw.length
+  // ── Live data from backend buffer ────────────────────────────────
+  const [live, setLive] = useState<LiveReading | null>(null);
+  // Keep a rolling history for the trend chart (last ~200 readings)
+  const historyRef = useRef<{ time: string; value: number }[]>([]);
+  const [trendData, setTrendData] = useState<{ day: string; value: number }[]>(
+    [],
   );
-  const monthlyAvg = Math.round(
-    monthlyRaw.reduce((sum, d) => sum + d.value, 0) / monthlyRaw.length
-  );
-  // Flow variability: coefficient of variation (stddev/mean) for 24h data
-  const mean = dailyAvg;
-  const stddev = Math.sqrt(
-    hourlyRaw.reduce((sum, d) => sum + Math.pow(d.value - mean, 2), 0) /
-      hourlyRaw.length
-  );
-  const flowVariability = mean > 0 ? Math.round((stddev / mean) * 100) : 0;
 
-  // Fluctuate liveDischarge every 5 seconds
-  React.useEffect(() => {
-    setLiveDischarge(baseDischarge);
-    if (baseDischarge === 0) return;
-    const interval = setInterval(() => {
-      // Fluctuate by ±2% of base value
-      const fluctuation = (Math.random() - 0.5) * 0.04 * baseDischarge;
-      setLiveDischarge((prev) => {
-        let next = baseDischarge + fluctuation;
-        // Clamp to 95%-105% of base
-        next = Math.max(
-          baseDischarge * 0.95,
-          Math.min(baseDischarge * 1.05, next)
+  useEffect(() => {
+    let cancelled = false;
+
+    async function fetchLive() {
+      try {
+        const res = await fetch(
+          `${API_BASE}/api/esp32/latest/${resolvedCanalId}`,
         );
-        return Math.round(next);
-      });
-    }, 5000);
-    return () => clearInterval(interval);
-  }, [baseDischarge]);
+        if (!res.ok) return;
+        const json = await res.json();
+        if (cancelled) return;
+        const r: LiveReading = json.reading;
+        setLive(r);
+
+        // Append to rolling history
+        const now = new Date();
+        const label = `${now.getHours()}:${String(now.getMinutes()).padStart(2, "0")}:${String(now.getSeconds()).padStart(2, "0")}`;
+        historyRef.current = [
+          ...historyRef.current.slice(-199),
+          { time: label, value: r.discharge },
+        ];
+        setTrendData(
+          historyRef.current.map((h) => ({ day: h.time, value: h.value })),
+        );
+      } catch {
+        // silent
+      }
+    }
+
+    fetchLive();
+    const id = setInterval(fetchLive, POLL_INTERVAL);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [resolvedCanalId]);
+
+  // ── Derived values ───────────────────────────────────────────────
+  const liveDischarge = live?.discharge ?? 0;
+  const battery = live?.batteryLevel ?? 0;
+  const signal = live?.signalStrength ?? 0;
+  const systemStatus = live ? "Online" : "Offline";
+  const lastUpdated = live?.timestamp
+    ? new Date(live.timestamp).toLocaleString()
+    : "—";
+
   const canalLocation = canalFeature?.geometry?.coordinates
-    ? `Lat: ${canalFeature.geometry.coordinates[1].toFixed(
-        4
-      )}, Lon: ${canalFeature.geometry.coordinates[0].toFixed(4)}`
+    ? `Lat: ${canalFeature.geometry.coordinates[1].toFixed(4)}, Lon: ${canalFeature.geometry.coordinates[0].toFixed(4)}`
     : "Unknown";
-  // Flow health logic
+
+  // Flow health
   const optimal_threshold = 500;
   const minimum_threshold = 200;
   let flowHealth = "Good";
@@ -189,6 +113,30 @@ export default function CanalDashboardPage() {
     flowHealth = "Moderate";
     flowHealthColor = "#FFB020";
   }
+
+  const canalStatus = live?.status ?? "STOPPED";
+  const showLiveFlow = canalStatus !== "STOPPED";
+
+  // Rolling averages from history
+  const histLen = historyRef.current.length;
+  const dailyAvg =
+    histLen > 0
+      ? Math.round(
+          historyRef.current.reduce((s, h) => s + h.value, 0) / histLen,
+        )
+      : 0;
+  const flowVariability =
+    histLen > 1
+      ? (() => {
+          const mean = dailyAvg;
+          const variance =
+            historyRef.current.reduce(
+              (s, h) => s + Math.pow(h.value - mean, 2),
+              0,
+            ) / histLen;
+          return mean > 0 ? Math.round((Math.sqrt(variance) / mean) * 100) : 0;
+        })()
+      : 0;
 
   if (!canalFeature) {
     return (
@@ -203,16 +151,6 @@ export default function CanalDashboardPage() {
       </div>
     );
   }
-
-  // Determine canal status (FLOWING/STOPPED)
-  let canalStatus: "FLOWING" | "STOPPED" = "FLOWING";
-  if (resolvedCanalId === "peechi-canal") canalStatus = "FLOWING";
-  else if (resolvedCanalId === "canoli-canal") canalStatus = "STOPPED";
-  else if (resolvedCanalId === "puthussery-kalady-canal")
-    canalStatus = "FLOWING";
-
-  // Helper: should show live flowrate KPI and flow health?
-  const showLiveFlow = canalStatus === "FLOWING";
 
   return (
     <div className="min-h-screen bg-background text-foreground flex flex-col">
@@ -291,7 +229,7 @@ export default function CanalDashboardPage() {
                   <div className="flex flex-col items-center justify-center max-w-xs">
                     {(() => {
                       const rawPercent = Math.round(
-                        (liveDischarge / optimal_threshold) * 100
+                        (liveDischarge / optimal_threshold) * 100,
                       );
                       const percent = Math.max(5, Math.min(90, rawPercent));
                       return (
@@ -320,44 +258,15 @@ export default function CanalDashboardPage() {
               )}
             </div>
           </div>
-          {/* Trend Analysis */}
+          {/* Trend Analysis — live rolling discharge */}
           <div className="w-full flex flex-col items-center justify-center mt-4">
             <div className="flex flex-row items-center gap-4 mb-2 w-full justify-start">
               <span className="text-lg font-semibold text-primary">
-                Flow Rate Trend
+                Live Discharge Trend
               </span>
-              <div className="flex gap-2">
-                <button
-                  className={`px-3 py-1 rounded text-xs font-medium ${
-                    trendRange === "24h"
-                      ? "bg-primary text-white"
-                      : "bg-secondary text-primary"
-                  }`}
-                  onClick={() => setTrendRange("24h")}
-                >
-                  Last 24 Hours
-                </button>
-                <button
-                  className={`px-3 py-1 rounded text-xs font-medium ${
-                    trendRange === "7d"
-                      ? "bg-primary text-white"
-                      : "bg-secondary text-primary"
-                  }`}
-                  onClick={() => setTrendRange("7d")}
-                >
-                  Last 7 Days
-                </button>
-                <button
-                  className={`px-3 py-1 rounded text-xs font-medium ${
-                    trendRange === "30d"
-                      ? "bg-primary text-white"
-                      : "bg-secondary text-primary"
-                  }`}
-                  onClick={() => setTrendRange("30d")}
-                >
-                  Last 30 Days
-                </button>
-              </div>
+              <span className="text-xs text-gray-500">
+                ({trendData.length} readings collected)
+              </span>
             </div>
             <div className="w-full">
               <MonthlyAreaChart data={trendData} color="#1E6CFF" />
@@ -366,19 +275,19 @@ export default function CanalDashboardPage() {
           {/* Secondary Metrics */}
           <div className="w-full flex flex-row gap-6 mt-4  pb-5 items-stretch">
             <div className="flex-1 bg-card rounded-xl shadow border border-primary pb-7 flex flex-col items-center justify-center min-w-45">
-               <CircularGauge
-                 value={dailyAvg}
-                 label="Daily Avg Flow"
-                 color="#00E5FF"
-                 unit=" m³/s"
-               />
+              <CircularGauge
+                value={dailyAvg}
+                label="Avg Discharge"
+                color="#00E5FF"
+                unit=" m³/s"
+              />
             </div>
             <div className="flex-1 bg-card rounded-xl shadow border border-primary pt-6 mb-0 pb-15 flex flex-col items-center justify-center min-w-45">
               <CircularGauge
-                value={monthlyAvg}
-                label="Monthly Avg Flow"
+                value={Math.round(battery)}
+                label="Battery"
                 color="#1E6CFF"
-                unit=" m³/s"
+                unit="%"
               />
             </div>
             <div className="flex-1 bg-card rounded-xl shadow border border-primary p-4 flex flex-col items-center justify-center min-w-45">

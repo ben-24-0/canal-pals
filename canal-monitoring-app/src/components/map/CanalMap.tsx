@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import React, { useState, useEffect } from "react";
 import {
   Map,
   Source,
@@ -12,8 +12,9 @@ import "maplibre-gl/dist/maplibre-gl.css";
 
 import canals from "../../data/canals";
 import type { FeatureCollection, Geometry, GeoJsonProperties } from "geojson";
-import { canalMetrics } from "../../data/canalMetrics";
+
 import { osmStyle } from "../../lib/mapConfig";
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
 
 type HoverInfo = {
   longitude: number;
@@ -38,6 +39,7 @@ export default function CanalMap({
 }: CanalMapProps) {
   const [hoverInfo, setHoverInfo] = useState<HoverInfo | null>(null);
   const [selectedCanal, setSelectedCanal] = useState<any>(null);
+  const [selectedMetrics, setSelectedMetrics] = useState<any>(null);
 
   // Use initialViewState for react-map-gl
   const [mapView, setMapView] = useState({
@@ -78,13 +80,39 @@ export default function CanalMap({
     const feature = e.features?.[0];
     if (!feature) return;
 
-    setSelectedCanal({
+    const sel = {
       id: feature.properties?.id,
       name: feature.properties?.name,
       longitude: e.lngLat.lng,
       latitude: e.lngLat.lat,
-    });
+    };
+    setSelectedCanal(sel);
+    setSelectedMetrics(null);
   };
+
+  // Poll live metrics for selected canal while popup open
+  useEffect(() => {
+    if (!selectedCanal) return;
+    let cancelled = false;
+    async function fetchMetrics() {
+      try {
+        const res = await fetch(`${API_BASE}/api/esp32/latest/${selectedCanal.id}`);
+        if (!res.ok) return;
+        const json = await res.json();
+        if (cancelled) return;
+        setSelectedMetrics(json.reading);
+      } catch (err) {
+        // ignore
+      }
+    }
+
+    fetchMetrics();
+    const id = setInterval(fetchMetrics, 3000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [selectedCanal]);
 
   return (
     <div className="relative h-full">
@@ -138,29 +166,21 @@ export default function CanalMap({
           >
             <div className="space-y-1 text-sm">
               <p className="font-semibold">{selectedCanal.name}</p>
-
-              {(() => {
-                const metrics = canalMetrics[selectedCanal.id];
-                return (
-                  <>
-                    <p>
-                      Status:{" "}
-                      <span
-                        className={
-                          metrics.status === "FLOWING"
-                            ? "text-green-600"
-                            : "text-red-600"
-                        }
-                      >
-                        {metrics.status}
-                      </span>
-                    </p>
-                    <p>Flow rate: {metrics.flowRate} m³/s</p>
-                    <p>Speed: {metrics.speed} m/s</p>
-                    <p>Discharge: {metrics.discharge} L/s</p>
-                  </>
-                );
-              })()}
+              {selectedMetrics ? (
+                <>
+                  <p>
+                    Status: {" "}
+                    <span className={selectedMetrics.status === "FLOWING" ? "text-green-600" : "text-red-600"}>
+                      {selectedMetrics.status}
+                    </span>
+                  </p>
+                  <p>Flow rate: {selectedMetrics.flowRate} m³/s</p>
+                  <p>Speed: {selectedMetrics.speed} m/s</p>
+                  <p>Discharge: {selectedMetrics.discharge} L/s</p>
+                </>
+              ) : (
+                <p className="text-sm text-gray-500">Loading live metrics…</p>
+              )}
             </div>
           </Popup>
         )}
