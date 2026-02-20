@@ -247,6 +247,66 @@ router.put(
       .optional()
       .isBoolean()
       .withMessage("isActive must be a boolean"),
+
+    body("sensorType")
+      .optional()
+      .isIn(["radar", "ultrasonic"])
+      .withMessage("sensorType must be radar or ultrasonic"),
+
+    body("depthOffset")
+      .optional()
+      .isFloat({ min: -10, max: 10 })
+      .withMessage("depthOffset must be between -10 and 10"),
+
+    body("upperLimit")
+      .optional()
+      .isFloat({ min: 0, max: 1000 })
+      .withMessage("upperLimit must be between 0 and 1000"),
+
+    body("lowerLimit")
+      .optional()
+      .isFloat({ min: 0, max: 1000 })
+      .withMessage("lowerLimit must be between 0 and 1000"),
+
+    body("manningsParams.shape")
+      .optional()
+      .isIn(["trapezoid", "rectangle", "circle"])
+      .withMessage("shape must be trapezoid, rectangle, or circle"),
+
+    body("manningsParams.b")
+      .optional()
+      .isFloat({ min: 0.1, max: 100 })
+      .withMessage("b (bottom width) must be between 0.1 and 100"),
+
+    body("manningsParams.z")
+      .optional()
+      .isFloat({ min: 0, max: 10 })
+      .withMessage("z (side slope) must be between 0 and 10"),
+
+    body("manningsParams.D")
+      .optional()
+      .isFloat({ min: 0.1, max: 50 })
+      .withMessage("D (diameter) must be between 0.1 and 50"),
+
+    body("manningsParams.S")
+      .optional()
+      .isFloat({ min: 0.00001, max: 0.1 })
+      .withMessage("S (bed slope) must be between 0.00001 and 0.1"),
+
+    body("manningsParams.n")
+      .optional()
+      .isFloat({ min: 0.01, max: 0.1 })
+      .withMessage("n (Manning coefficient) must be between 0.01 and 0.1"),
+
+    body("manningsParams.u")
+      .optional()
+      .isFloat({ min: 1, max: 1.5 })
+      .withMessage("u (unit factor) must be 1 (SI) or 1.49 (US)"),
+
+    body("manningsParams.depthMax")
+      .optional()
+      .isFloat({ min: 0.1, max: 50 })
+      .withMessage("depthMax must be between 0.1 and 50"),
   ],
   async (req, res) => {
     try {

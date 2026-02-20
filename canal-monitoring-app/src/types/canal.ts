@@ -39,6 +39,10 @@ export interface CanalInfo {
   description?: string;
   capacity?: number;
   depthOffset?: number;
+  /** Flow rate upper threshold - above triggers HIGH_FLOW */
+  upperLimit?: number;
+  /** Flow rate lower threshold - below triggers LOW_FLOW */
+  lowerLimit?: number;
   createdAt: string;
   updatedAt?: string;
 }

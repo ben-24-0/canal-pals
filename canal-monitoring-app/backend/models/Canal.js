@@ -68,6 +68,17 @@ const canalSchema = new mongoose.Schema(
       type: Number,
       default: 0,
     },
+    // Flow rate thresholds for alerts
+    upperLimit: {
+      type: Number,
+      default: 20, // m³/s - above triggers HIGH_FLOW
+      min: 0,
+    },
+    lowerLimit: {
+      type: Number,
+      default: 2, // m³/s - below triggers LOW_FLOW
+      min: 0,
+    },
     isActive: {
       type: Boolean,
       default: true,

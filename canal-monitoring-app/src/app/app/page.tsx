@@ -23,7 +23,7 @@ export default function CanalModulesHub() {
   const [typeFilter, setTypeFilter] = useState<string>("all");
 
   const { readings, connected } = useAllCanalsSSE();
-  const { isFavourite, toggle, favourites } = useFavourites();
+  const { isPinned, toggle, pinnedIds, getPinnedCanals } = useFavourites();
 
   // Fetch canal list on mount
   useEffect(() => {
@@ -48,9 +48,8 @@ export default function CanalModulesHub() {
     return true;
   });
 
-  // Favourite canals first
-  const favCanals = filtered.filter((c) => isFavourite(c.canalId));
-  const otherCanals = filtered.filter((c) => !isFavourite(c.canalId));
+  // Pinned canals (copies for separate display above All list)
+  const pinnedCanals = getPinnedCanals(filtered);
 
   if (loading) {
     return (
@@ -111,21 +110,21 @@ export default function CanalModulesHub() {
         </div>
       </div>
 
-      {/* Favourites strip */}
-      {favCanals.length > 0 && (
+      {/* Pinned Canals strip */}
+      {pinnedCanals.length > 0 && (
         <div>
           <div className="flex items-center gap-2 mb-3">
             <h2 className="text-sm font-semibold text-foreground">
-              Favourites
+              Pinned Canals
             </h2>
             <Badge variant="secondary" className="text-[10px]">
-              {favourites.size}
+              {pinnedIds.size}
             </Badge>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-            {favCanals.map((canal) => (
+            {pinnedCanals.map((canal) => (
               <CanalModuleCard
-                key={canal.canalId}
+                key={`pinned-${canal.canalId}`}
                 canal={canal}
                 reading={readings.get(canal.canalId) ?? null}
                 isFavourite
@@ -139,23 +138,23 @@ export default function CanalModulesHub() {
 
       {/* All Canals */}
       <div>
-        {favCanals.length > 0 && (
+        {pinnedCanals.length > 0 && (
           <h2 className="text-sm font-semibold text-foreground mb-3">
             All Canals
           </h2>
         )}
-        {otherCanals.length === 0 && favCanals.length === 0 ? (
+        {filtered.length === 0 ? (
           <div className="flex items-center justify-center h-40 text-sm text-muted-foreground">
             {search ? "No canals match your search." : "No canals available."}
           </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-            {otherCanals.map((canal) => (
+            {filtered.map((canal) => (
               <CanalModuleCard
                 key={canal.canalId}
                 canal={canal}
                 reading={readings.get(canal.canalId) ?? null}
-                isFavourite={false}
+                isFavourite={isPinned(canal.canalId)}
                 onToggleFavourite={toggle}
                 isAdmin={isAdmin}
               />
