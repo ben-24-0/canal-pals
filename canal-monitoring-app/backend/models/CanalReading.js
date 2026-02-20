@@ -34,22 +34,20 @@ const canalReadingSchema = new mongoose.Schema(
     },
     speed: {
       type: Number,
-      required: true,
       min: 0,
       validate: {
         validator: function (value) {
-          return value >= 0 && value <= 50; // Maximum reasonable speed
+          return value == null || (value >= 0 && value <= 50);
         },
         message: "Speed must be between 0 and 50",
       },
     },
     discharge: {
       type: Number,
-      required: true,
       min: 0,
       validate: {
         validator: function (value) {
-          return value >= 0 && value <= 10000; // Maximum reasonable discharge
+          return value == null || (value >= 0 && value <= 10000);
         },
         message: "Discharge must be between 0 and 10000",
       },
@@ -57,7 +55,27 @@ const canalReadingSchema = new mongoose.Schema(
     waterLevel: {
       type: Number,
       min: 0,
-      default: 0, // in meters
+      default: 0,
+    },
+    depth: {
+      type: Number,
+      min: 0,
+    },
+    calculatedArea: {
+      type: Number,
+      min: 0,
+    },
+    calculatedHydraulicRadius: {
+      type: Number,
+      min: 0,
+    },
+    wettedPerimeter: {
+      type: Number,
+      min: 0,
+    },
+    sensorType: {
+      type: String,
+      enum: ["radar", "ultrasonic"],
     },
     temperature: {
       type: Number,

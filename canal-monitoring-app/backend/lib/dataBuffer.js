@@ -10,6 +10,7 @@
  */
 
 const CanalReading = require("../models/CanalReading");
+const sseEmitter = require("./sseEmitter");
 
 // ── Configuration ───────────────────────────────────────────────────
 const FLUSH_INTERVAL_MS =
@@ -31,6 +32,9 @@ function push(canalId, readingObj) {
   const entry = store.get(canalId);
   entry.latest = readingObj;
   entry.buffer.push(readingObj);
+
+  // Broadcast to all connected SSE clients immediately
+  sseEmitter.emit("reading", { canalId, reading: readingObj });
 }
 
 /** Get the most recent reading for one canal (from memory). */

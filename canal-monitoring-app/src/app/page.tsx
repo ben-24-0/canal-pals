@@ -4,9 +4,8 @@ import Navbar from "../components/Navbar";
 import OurSolution from "../components/OurSolution";
 import Footer from "../components/Footer";
 import WhatIsWebsite from "../components/WhatIsWebsite";
+import CanalGallery from "../components/CanalGallery";
 
-
-import CanalMap from "@/components/map/CanalMap";
 import HomeCanalMap from "@/components/map/HomeCanalMap";
 
 export default function HomePage() {
@@ -31,6 +30,9 @@ export default function HomePage() {
           <OurSolution />
         </div>
       </div>
+
+      {/* Canal Gallery Section */}
+      <CanalGallery />
 
       <Footer />
     </div>

@@ -162,6 +162,10 @@ router.post(
         description,
         capacity,
         esp32DeviceId,
+        sensorType,
+        manningsParams,
+        depthOffset,
+        isActive,
       } = req.body;
 
       // Check if canal already exists
@@ -185,6 +189,10 @@ router.post(
         description,
         capacity,
         esp32DeviceId,
+        sensorType: sensorType || "radar",
+        manningsParams,
+        depthOffset,
+        isActive: isActive !== undefined ? isActive : true,
       });
 
       await canal.save();

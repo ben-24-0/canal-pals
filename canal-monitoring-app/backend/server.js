@@ -70,12 +70,16 @@ const connectDB = async () => {
 const esp32Routes = require("./routes/esp32");
 const canalRoutes = require("./routes/canals");
 const dashboardRoutes = require("./routes/dashboard");
+const authRoutes = require("./routes/auth");
+const streamRoutes = require("./routes/stream");
 const dataBuffer = require("./lib/dataBuffer");
 
 // Routes
 app.use("/api/esp32", esp32Routes);
 app.use("/api/canals", canalRoutes);
 app.use("/api/dashboard", dashboardRoutes);
+app.use("/api/auth", authRoutes);
+app.use("/api/stream", streamRoutes);
 
 // Health check endpoint
 app.get("/health", (req, res) => {
@@ -98,6 +102,9 @@ app.get("/", (req, res) => {
       "/api/esp32/data",
       "/api/canals",
       "/api/dashboard/metrics",
+      "/api/auth/login",
+      "/api/stream/canals",
+      "/api/stream/canal/:canalId",
     ],
   });
 });

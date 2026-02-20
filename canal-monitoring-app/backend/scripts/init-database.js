@@ -1,7 +1,9 @@
 require("dotenv").config();
 const mongoose = require("mongoose");
+const bcrypt = require("bcryptjs");
 const Canal = require("../models/Canal");
 const CanalReading = require("../models/CanalReading");
+const User = require("../models/User");
 
 // Import existing canal data from frontend
 const canalsData = {
@@ -84,6 +86,31 @@ async function initializeDatabase() {
     console.log("🧹 Clearing existing data...");
     await Canal.deleteMany({});
     await CanalReading.deleteMany({});
+    await User.deleteMany({});
+
+    // ── Seed Users ─────────────────────────────────────────────────
+    console.log("👤 Seeding users...");
+    const salt = await bcrypt.genSalt(10);
+    const users = [
+      {
+        email: "admin@canal.io",
+        passwordHash: await bcrypt.hash("admin123", salt),
+        name: "Admin User",
+        role: "admin",
+        favouriteCanals: ["peechi-canal"],
+      },
+      {
+        email: "user@canal.io",
+        passwordHash: await bcrypt.hash("user123", salt),
+        name: "Regular User",
+        role: "user",
+        favouriteCanals: [],
+      },
+    ];
+    const createdUsers = await User.insertMany(users);
+    console.log(
+      `✅ Created ${createdUsers.length} users (admin@canal.io / admin123, user@canal.io / user123)`,
+    );
 
     console.log("📊 Initializing canal data...");
 
@@ -99,6 +126,17 @@ async function initializeDatabase() {
           coordinates: feature.geometry.coordinates,
         },
         isActive: true,
+        sensorType:
+          feature.properties.id === "canoli-canal" ? "ultrasonic" : "radar",
+        manningsParams: {
+          shape: "trapezoid",
+          b: 3.0,
+          z: 1.5,
+          S: 0.0005,
+          n: 0.025,
+          u: 1,
+          depthMax: 2.5,
+        },
         description: `${feature.properties.name} - Monitoring station for irrigation canal system`,
       };
 

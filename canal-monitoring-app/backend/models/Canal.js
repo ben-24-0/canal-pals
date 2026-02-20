@@ -49,6 +49,25 @@ const canalSchema = new mongoose.Schema(
       unique: true,
       sparse: true, // allows null values in unique field
     },
+    sensorType: {
+      type: String,
+      enum: ["radar", "ultrasonic"],
+      default: "radar",
+    },
+    manningsParams: {
+      shape: { type: String, enum: ["trapezoid", "rectangle", "circle"] },
+      b: Number,
+      z: Number,
+      D: Number,
+      S: Number,
+      n: Number,
+      u: { type: Number, default: 1 },
+      depthMax: Number,
+    },
+    depthOffset: {
+      type: Number,
+      default: 0,
+    },
     isActive: {
       type: Boolean,
       default: true,

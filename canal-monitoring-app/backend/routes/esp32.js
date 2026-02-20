@@ -2,6 +2,7 @@ const express = require("express");
 const { body, validationResult } = require("express-validator");
 const Canal = require("../models/Canal");
 const dataBuffer = require("../lib/dataBuffer");
+const { calculateFlowRate } = require("../lib/mannings");
 
 const router = express.Router();
 
@@ -33,22 +34,31 @@ const canalDataValidation = [
     ),
 
   body("status")
+    .optional()
     .isIn(["FLOWING", "STOPPED", "LOW_FLOW", "HIGH_FLOW", "BLOCKED", "ERROR"])
     .withMessage(
       "Status must be one of: FLOWING, STOPPED, LOW_FLOW, HIGH_FLOW, BLOCKED, ERROR",
     ),
 
   body("flowRate")
+    .optional()
     .isFloat({ min: 0, max: 1000 })
     .withMessage("Flow rate must be a number between 0 and 1000"),
 
   body("speed")
+    .optional()
     .isFloat({ min: 0, max: 50 })
     .withMessage("Speed must be a number between 0 and 50"),
 
   body("discharge")
+    .optional()
     .isFloat({ min: 0, max: 10000 })
     .withMessage("Discharge must be a number between 0 and 10000"),
+
+  body("depth")
+    .optional()
+    .isFloat({ min: 0 })
+    .withMessage("Depth must be a positive number"),
 
   body("waterLevel")
     .optional()
@@ -162,13 +172,13 @@ router.post(
       }
 
       // Build reading object (plain object, not a Mongoose doc)
+      const sensorType = canal.sensorType || "radar";
+      const depth = req.body.depth;
+
       const readingObj = {
         canalId: canalId.toLowerCase().trim(),
         esp32DeviceId: deviceId,
-        status,
-        flowRate,
-        speed,
-        discharge,
+        sensorType,
         waterLevel,
         temperature,
         pH,
@@ -183,6 +193,40 @@ router.post(
           : new Date(),
         receivedAt: new Date(),
       };
+
+      // ── Ultrasonic sensor → Manning's equation ──
+      if (
+        sensorType === "ultrasonic" &&
+        depth != null &&
+        canal.manningsParams
+      ) {
+        const mp = canal.manningsParams;
+        const finalDepth = Math.max(0, depth - (canal.depthOffset || 0));
+        const result = calculateFlowRate(finalDepth, mp);
+        readingObj.depth = finalDepth;
+        readingObj.flowRate = result.Q;
+        readingObj.speed = result.V;
+        readingObj.calculatedArea = result.A;
+        readingObj.calculatedHydraulicRadius = result.R;
+        readingObj.wettedPerimeter = result.P;
+        readingObj.discharge = result.Q; // Q ≡ discharge for ultrasonic
+      } else {
+        // ── Radar sensor → values sent directly from ESP32 ──
+        readingObj.flowRate = flowRate ?? 0;
+        readingObj.speed = speed ?? 0;
+        readingObj.discharge = discharge ?? 0;
+        if (depth != null) readingObj.depth = depth;
+      }
+
+      // Auto-determine status from flow rate if not explicitly provided
+      if (!status) {
+        if (readingObj.flowRate === 0) readingObj.status = "STOPPED";
+        else if (readingObj.flowRate < 2) readingObj.status = "LOW_FLOW";
+        else if (readingObj.flowRate > 50) readingObj.status = "HIGH_FLOW";
+        else readingObj.status = "FLOWING";
+      } else {
+        readingObj.status = status;
+      }
 
       // ── Push to in-memory buffer (NO DB write here) ──
       dataBuffer.push(readingObj.canalId, readingObj);
