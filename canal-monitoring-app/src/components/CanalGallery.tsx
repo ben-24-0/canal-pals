@@ -26,7 +26,7 @@ export default function CanalGallery() {
   const [canals, setCanals] = useState<CanalPreview[]>([]);
 
   useEffect(() => {
-    fetch(`${BACKEND_URL}/api/canals?limit=6`)
+    fetch(`${BACKEND_URL}/api/canals`)
       .then((r) => r.json())
       .then((json) => setCanals(json.canals ?? []))
       .catch(() => {});

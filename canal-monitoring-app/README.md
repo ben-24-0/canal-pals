@@ -1,3 +1,82 @@
+# Canal Monitoring App
+
+Small Next.js + Express app to monitor canal sensors (ESP32). This README lists the repository layout and quick run steps.
+
+## Quick Start
+
+- Install dependencies (root installs frontend deps):
+
+```powershell
+npm install
+cd backend
+npm install
+```
+
+- Run backend locally:
+
+```powershell
+cd backend
+npm run dev
+```
+
+- Run Next.js frontend:
+
+```powershell
+# from project root
+npm run dev
+```
+
+## Environment notes
+
+- Copy `.env.local` (root) and update values if developing locally. Key vars:
+  - `NEXT_PUBLIC_API_URL` / `NEXT_PUBLIC_BACKEND_URL` — backend base URL (default used in repo: `https://canal-pals.onrender.com`)
+  - `NEXTAUTH_URL` — frontend URL for NextAuth
+
+If running backend locally, set both to `http://localhost:3001` and restart Next.js.
+
+## Folder structure
+
+```
+.
+├─ AGENT_PLAN.md
+├─ components.json
+├─ eslint.config.mjs
+├─ next.config.ts
+├─ package.json
+├─ postcss.config.mjs
+├─ README.md
+├─ tsconfig.json
+├─ backend/
+│  ├─ package.json
+│  ├─ server.js
+│  ├─ routes/
+│  ├─ lib/
+│  └─ scripts/
+├─ components/
+│  ├─ map/
+│  └─ ui/
+├─ esp32/
+│  └─ canal_monitor/
+├─ lib/
+├─ public/
+├─ src/
+│  ├─ app/
+│  ├─ components/
+│  ├─ hooks/
+│  ├─ lib/
+│  └─ types/
+└─ .env.local
+```
+
+## Where to look for network code
+
+- Frontend uses `NEXT_PUBLIC_API_URL` / `NEXT_PUBLIC_BACKEND_URL` to call the backend. See `src/hooks/*` and `src/components/*` (e.g. `src/components/map/CanalMap.tsx`).
+- Backend CORS is configured in `backend/server.js` — ensure `FRONTEND_URL` includes `http://localhost:3000` when developing locally.
+
+## Next steps
+
+- If the frontend can't fetch `https://canal-pals.onrender.com/api/canals`, verify the remote service is reachable and that CORS allows `http://localhost:3000`, or run the backend locally and point `NEXT_PUBLIC_BACKEND_URL` to `http://localhost:3001`.
+
 # Canal Monitoring App — Agent Reference README
 
 This document is written for other agents and maintainers to understand, navigate, and extend the Canal Monitoring App. It describes the project idea, repository layout, each file's purpose (especially backend), runtime behavior, APIs, data flow, developer workflows, and operational notes.
@@ -157,6 +236,7 @@ Create a `.env` in `backend/` (or set env vars in your container/orchestration).
 - `ESP32_BUFFER_FLUSH_INTERVAL` — seconds between automatic flushes (default 600)
 
 Security/operational notes:
+
 - Keep `MONGODB_URI` secret (use secrets manager in production)
 - Rate-limiting is configured in `server.js` for basic DDoS protection
 
@@ -166,7 +246,8 @@ Security/operational notes:
 
 All API endpoints are prefixed by `/api` (except `/health`). Responses are JSON.
 
-1) POST /api/esp32/data
+1. POST /api/esp32/data
+
 - Purpose: ingest telemetry from ESP32
 - Headers: `X-ESP32-ID: <deviceId>` (recommended) or include `deviceId` in body
 - Body (JSON summary — all fields validated):
@@ -190,25 +271,32 @@ All API endpoints are prefixed by `/api` (except `/health`). Responses are JSON.
 
 - Behavior: validates, checks canal & device auth, pushes to `dataBuffer`, returns buffer stats and possible alerts. Does NOT write directly to DB.
 
-2) GET /api/esp32/latest/:canalId
+2. GET /api/esp32/latest/:canalId
+
 - Returns the latest reading for a canal from memory (fast).
 
-3) POST /api/esp32/flush
+3. POST /api/esp32/flush
+
 - Trigger immediate flush of buffers to MongoDB.
 
-4) POST /api/esp32/register
+4. POST /api/esp32/register
+
 - Register a device to a canal (associates `esp32DeviceId` to a canal doc).
 
-5) GET /api/canals
+5. GET /api/canals
+
 - List canals (supports filters `active`, `type`, pagination)
 
-6) GET /api/canals/:canalId/readings
+6. GET /api/canals/:canalId/readings
+
 - Fetch historical readings from MongoDB (supports `limit`, `page`, `startDate`, `endDate`, `status`)
 
-7) GET /api/dashboard/metrics
+7. GET /api/dashboard/metrics
+
 - Live metrics read from memory buffer and enriched with canal info.
 
-8) GET /health
+8. GET /health
+
 - Basic healthcheck with version, uptime, environment
 
 ---
@@ -221,6 +309,7 @@ All API endpoints are prefixed by `/api` (except `/health`). Responses are JSON.
 4. Every `ESP32_BUFFER_FLUSH_INTERVAL` seconds the server bulk-inserts buffered readings into MongoDB using `insertMany` for efficiency and clears buffers. On graceful shutdown the server calls `stopAndFlush()` to attempt a final persist.
 
 Design tradeoffs:
+
 - In-memory buffering reduces write amplification and improves throughput but risks data loss if process crashes before flush; mitigate with frequent flushes and graceful shutdown handlers (already implemented).
 - `insertMany(..., ordered:false)` improves resilience by continuing on duplicates.
 
@@ -285,6 +374,7 @@ Design tradeoffs:
 ---
 
 If you'd like, I can:
+
 - expand the README with a formal OpenAPI spec for the backend
 - add example Postman/HTTPie collection or automated tests
 - add a Dockerfile and Docker Compose for local dev with MongoDB

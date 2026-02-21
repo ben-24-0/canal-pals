@@ -14,11 +14,12 @@ app.use(helmet());
 
 // CORS configuration
 app.use(
-  cors({
-    origin: process.env.FRONTEND_URL || "http://localhost:3000",
-    methods: ["GET", "POST", "PUT", "DELETE"],
-    allowedHeaders: ["Content-Type", "Authorization", "X-ESP32-ID"],
-  }),
+cors({
+  origin: [process.env.FRONTEND_URL, "http://localhost:3000"].filter(Boolean),
+  methods: ["GET", "POST", "PUT", "DELETE"],
+  allowedHeaders: ["Content-Type", "Authorization", "X-ESP32-ID"],
+  credentials: true, // add this if you're sending cookies/auth headers
+})
 );
 
 // Rate limiting for ESP32 endpoints
