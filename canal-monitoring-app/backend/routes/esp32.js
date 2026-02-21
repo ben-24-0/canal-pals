@@ -99,6 +99,16 @@ const canalDataValidation = [
     .optional()
     .isFloat({ min: -180, max: 180 })
     .withMessage("Longitude must be between -180 and 180"),
+
+  body("distance")
+    .optional()
+    .isFloat({ min: 0 })
+    .withMessage("Distance must be a non-negative number (cm from sensor to water)"),
+
+  body("radarStatus")
+    .optional()
+    .isInt()
+    .withMessage("Radar status must be an integer"),
 ];
 
 // POST /api/esp32/data - Main endpoint for ESP32 to send canal data
@@ -173,7 +183,20 @@ router.post(
 
       // Build reading object (plain object, not a Mongoose doc)
       const sensorType = canal.sensorType || "radar";
-      const depth = req.body.depth;
+      let depth = req.body.depth;
+      const rawDistance = req.body.distance;  // cm from ultrasonic sensor
+      const rawRadarStatus = req.body.radarStatus;
+
+      // ── Convert raw distance to depth if ESP32 sent 'distance' ──
+      // distance = sensor-to-water surface (cm).  depthOffset = sensor
+      // mounting height above canal bottom (cm).  depth = offset − distance.
+      if (depth == null && rawDistance != null && canal.depthOffset) {
+        depth = Math.max(0, canal.depthOffset - rawDistance);  // cm
+        depth = +(depth / 100).toFixed(4);  // convert cm → metres
+        console.log(
+          `📐 [DISTANCE→DEPTH] distance=${rawDistance}cm, offset=${canal.depthOffset}cm → depth=${depth}m`,
+        );
+      }
 
       const readingObj = {
         canalId: canalId.toLowerCase().trim(),
@@ -188,6 +211,8 @@ router.post(
         gpsCoordinates,
         errors: deviceErrors,
         metadata,
+        rawDistance,
+        rawRadarStatus,
         timestamp: req.body.timestamp
           ? new Date(req.body.timestamp)
           : new Date(),
@@ -201,7 +226,7 @@ router.post(
         canal.manningsParams
       ) {
         const mp = canal.manningsParams;
-        const finalDepth = Math.max(0, depth - (canal.depthOffset || 0));
+        const finalDepth = Math.max(0, depth);
         const result = calculateFlowRate(finalDepth, mp);
         readingObj.depth = finalDepth;
         readingObj.flowRate = result.Q;
@@ -210,6 +235,9 @@ router.post(
         readingObj.calculatedHydraulicRadius = result.R;
         readingObj.wettedPerimeter = result.P;
         readingObj.discharge = result.Q; // Q ≡ discharge for ultrasonic
+        console.log(
+          `📐 [MANNINGS] depth=${finalDepth}m → Q=${result.Q} m³/s, V=${result.V} m/s`,
+        );
       } else {
         // ── Radar sensor → values sent directly from ESP32 ──
         readingObj.flowRate = flowRate ?? 0;
@@ -234,7 +262,7 @@ router.post(
       const bufferStats = dataBuffer.getBufferStats();
       const buffered = bufferStats[readingObj.canalId]?.buffered || 1;
       console.log(
-        `📦 [BUFFERED] Data from ${deviceId} for canal ${canalId}: ${status}, Flow: ${flowRate}  (${buffered} in buffer)`,
+        `📦 [BUFFERED] Data from ${deviceId} for canal ${canalId}: ${readingObj.status}, Flow: ${readingObj.flowRate}  (${buffered} in buffer)`,
       );
 
       // Check for alerts
