@@ -1,343 +1,431 @@
 /*
  * ============================================================
- *  Canal Monitoring System — ESP32 Firmware
+ *  Canal Monitoring System — ESP32 + SIM800L + I2C Firmware
  * ============================================================
  *
- *  This sketch reads sensor data and sends it to the
- *  Canal Monitoring backend over Wi-Fi.
+ *  Hardware:
+ *    - ESP32 Dev Module
+ *    - SIM800L GSM module (GPRS data via AT commands)
+ *    - Arduino Nano slave on I2C (sends ultrasonic distance + radar)
+ *    - 12V battery with voltage divider on GPIO 34
  *
  *  Workflow:
- *    1. Connect to Wi-Fi
- *    2. Register this device with the backend
- *    3. Every SEND_INTERVAL seconds, read sensors and POST data
+ *    1. Read ultrasonic distance + radar status from Nano over I2C
+ *    2. Read battery voltage from ADC
+ *    3. Register this device with the backend (once)
+ *    4. POST raw sensor data every DATA_SEND_INTERVAL ms
  *
- *  Required libraries (install via Arduino Library Manager):
- *    - ArduinoJson  (v7+)
- *    - HTTPClient   (built-in with ESP32 board package)
- *    - WiFi         (built-in with ESP32 board package)
+ *  The backend converts distance → depth via:
+ *    depth = depthOffset − distance   (both in cm)
+ *  Then runs Manning's equation to compute flow rate, velocity, etc.
  *
- *  Board: ESP32 Dev Module (or your specific board)
+ *  Required: No extra Arduino libraries — uses Wire.h & HardwareSerial.
  * ============================================================
  */
 
-#include <WiFi.h>
-#include <HTTPClient.h>
-#include <ArduinoJson.h>
+#include <Wire.h>
+#include <HardwareSerial.h>
 
-// =====================  USER CONFIG  =========================
-// Wi-Fi credentials
-const char* WIFI_SSID     = "YOUR_WIFI_SSID";
-const char* WIFI_PASSWORD = "YOUR_WIFI_PASSWORD";
+// =====================  I2C CONFIG  ==========================
+#define I2C_SLAVE_ADDR 8
+#define I2C_SDA        21
+#define I2C_SCL        22
 
-// Backend server URL  (no trailing slash)
-// For local development use your PC's local IP, e.g. "http://192.168.1.50:3001"
-// For production use your deployed backend URL
-const char* SERVER_URL = "http://192.168.1.100:3001";
+// =====================  SIM800L CONFIG  ======================
+#define GSM_RX 25   // ESP32 RX ← SIM800L TX
+#define GSM_TX 26   // ESP32 TX → SIM800L RX
 
-// Canal this device is assigned to (must already exist in the database)
-const char* CANAL_ID = "your-canal-id";
+// =====================  BATTERY CONFIG  ======================
+#define BATTERY_PIN 34
+const float R1 = 47000.0;           // upper resistor (ohms)
+const float R2 = 10000.0;           // lower resistor (ohms)
+const float ADC_REF = 3.3 / 4095.0; // ESP32 12-bit ADC reference
 
-// Unique device identifier for this ESP32
-// Tip: use something descriptive, e.g. "ESP32_PEECHI_001"
-const char* DEVICE_ID = "ESP32_DEVICE_001";
+// =====================  SERVER CONFIG  =======================
+// >>> CHANGE THESE to match your deployment <<<
+#define SERVER_URL   "https://canal-pals.onrender.com"
 
-// How often to send data (in seconds)
-const int SEND_INTERVAL = 5;
+// >>> MUST match an existing canal in your MongoDB <<<
+#define CANAL_ID     "peechi-canal"
 
-// =====================  SENSOR PINS  =========================
-// Adjust these to match your wiring
+// Unique device identifier — backend uses this to authorise the device
+#define DEVICE_ID    "ESP32_SIM_PEECHI_CANAL"
 
-// Ultrasonic sensor (HC-SR04 or JSN-SR04T)
-const int TRIG_PIN = 5;
-const int ECHO_PIN = 18;
-
-// (Optional) Analog sensors
-const int TEMP_SENSOR_PIN = 34;   // e.g. DS18B20 or thermistor
-const int PH_SENSOR_PIN   = 35;   // pH probe analog output
-const int TURB_SENSOR_PIN = 32;   // Turbidity sensor analog
-
-// Max distance the ultrasonic sensor is mounted above the canal bottom (cm)
-// Used to convert "distance to water surface" → "water depth"
-const float SENSOR_HEIGHT_CM = 200.0;
+// =====================  TIMING  ==============================
+const unsigned long I2C_READ_INTERVAL  = 2000;   // read Nano every 2 s
+const unsigned long DATA_SEND_INTERVAL = 10000;  // send to server every 10 s
+const unsigned long GSM_RECONNECT_INTERVAL = 60000; // re-check GPRS every 60 s
 
 // =====================  GLOBALS  =============================
-unsigned long lastSendTime = 0;
-bool deviceRegistered = false;
-int  readingCount = 0;
+HardwareSerial SerialGSM(1);
+
+uint16_t ultrasonicDistance = 0;   // cm — raw distance from sensor
+int      radarStatus        = 0;   // 0 = no motion, 1 = motion detected
+float    batteryVoltage     = 0.0;
+int      batteryPercent     = 0;
+bool     deviceRegistered   = false;
+int      sendCount          = 0;
+
+unsigned long lastI2CRead      = 0;
+unsigned long lastDataSend     = 0;
+unsigned long lastGSMCheck     = 0;
 
 // =============================================================
-//                      SENSOR HELPERS
+//                          SETUP
 // =============================================================
-
-/**
- * Read water depth using an ultrasonic sensor.
- * Returns depth in meters.
- * Depth = SENSOR_HEIGHT - measured distance to water surface.
- */
-float readUltrasonicDepth() {
-  digitalWrite(TRIG_PIN, LOW);
-  delayMicroseconds(2);
-  digitalWrite(TRIG_PIN, HIGH);
-  delayMicroseconds(10);
-  digitalWrite(TRIG_PIN, LOW);
-
-  long duration = pulseIn(ECHO_PIN, HIGH, 30000); // timeout 30 ms
-  if (duration == 0) {
-    Serial.println("[WARN] Ultrasonic timeout — no echo received");
-    return -1.0; // error
-  }
-
-  float distanceCm = (duration * 0.0343) / 2.0;
-  float depthCm    = SENSOR_HEIGHT_CM - distanceCm;
-
-  if (depthCm < 0) depthCm = 0;
-
-  return depthCm / 100.0; // convert to meters
-}
-
-/**
- * Read temperature from an analog sensor.
- * Replace this with your actual sensor library (e.g. OneWire + DallasTemperature).
- * Returns degrees Celsius.
- */
-float readTemperature() {
-  int raw = analogRead(TEMP_SENSOR_PIN);
-  // Placeholder conversion — replace with your sensor's formula
-  float voltage = raw * (3.3 / 4095.0);
-  float tempC = voltage * 100.0; // e.g. LM35: 10 mV/°C
-  return tempC;
-}
-
-/**
- * Read pH from an analog sensor.
- * Returns pH value (0-14).
- */
-float readPH() {
-  int raw = analogRead(PH_SENSOR_PIN);
-  // Placeholder — calibrate for your pH probe
-  float voltage = raw * (3.3 / 4095.0);
-  float pH = 3.5 * voltage;  // replace with calibrated formula
-  return constrain(pH, 0.0, 14.0);
-}
-
-/**
- * Read turbidity from an analog sensor.
- * Returns NTU (Nephelometric Turbidity Units).
- */
-float readTurbidity() {
-  int raw = analogRead(TURB_SENSOR_PIN);
-  // Placeholder — calibrate for your turbidity sensor
-  float voltage = raw * (3.3 / 4095.0);
-  float ntu = voltage * 100.0; // rough placeholder
-  return max(ntu, 0.0f);
-}
-
-/**
- * Read battery level (if using a voltage divider on a battery).
- * Returns percentage (0-100).
- */
-float readBatteryLevel() {
-  // If powered via USB this is not applicable — return 100
-  // For battery: read ADC on a voltage divider and map to 0-100%
-  return 100.0;
-}
-
-/**
- * Get Wi-Fi signal strength in dBm.
- */
-float getSignalStrength() {
-  return (float)WiFi.RSSI();
-}
-
-// =============================================================
-//                      NETWORK HELPERS
-// =============================================================
-
-/**
- * Connect (or reconnect) to Wi-Fi.
- */
-void connectWiFi() {
-  if (WiFi.status() == WL_CONNECTED) return;
-
-  Serial.printf("[WiFi] Connecting to %s", WIFI_SSID);
-  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-
-  int attempts = 0;
-  while (WiFi.status() != WL_CONNECTED && attempts < 40) {
-    delay(500);
-    Serial.print(".");
-    attempts++;
-  }
-
-  if (WiFi.status() == WL_CONNECTED) {
-    Serial.printf("\n[WiFi] Connected!  IP: %s\n", WiFi.localIP().toString().c_str());
-  } else {
-    Serial.println("\n[WiFi] Connection FAILED — will retry next loop");
-  }
-}
-
-/**
- * Register this ESP32 with the backend.
- * Endpoint: POST /api/esp32/register
- */
-bool registerDevice() {
-  if (WiFi.status() != WL_CONNECTED) return false;
-
-  HTTPClient http;
-  String url = String(SERVER_URL) + "/api/esp32/register";
-
-  http.begin(url);
-  http.addHeader("Content-Type", "application/json");
-  http.addHeader("X-ESP32-ID", DEVICE_ID);
-  http.setTimeout(10000);
-
-  // Build JSON body
-  JsonDocument doc;
-  doc["canalId"] = CANAL_ID;
-
-  String body;
-  serializeJson(doc, body);
-
-  Serial.printf("[REG] POST %s\n", url.c_str());
-  int httpCode = http.POST(body);
-
-  if (httpCode == 200) {
-    String response = http.getString();
-    Serial.printf("[REG] Success: %s\n", response.c_str());
-    http.end();
-    return true;
-  } else {
-    String response = http.getString();
-    Serial.printf("[REG] Failed (HTTP %d): %s\n", httpCode, response.c_str());
-    http.end();
-    return false;
-  }
-}
-
-/**
- * Send sensor reading to the backend.
- * Endpoint: POST /api/esp32/data
- */
-bool sendReading(float depth, float temperature, float pH, float turbidity,
-                 float batteryLevel, float signalStrength) {
-  if (WiFi.status() != WL_CONNECTED) return false;
-
-  HTTPClient http;
-  String url = String(SERVER_URL) + "/api/esp32/data";
-
-  http.begin(url);
-  http.addHeader("Content-Type", "application/json");
-  http.addHeader("X-ESP32-ID", DEVICE_ID);
-  http.setTimeout(10000);
-
-  // Build JSON payload
-  JsonDocument doc;
-  doc["canalId"]        = CANAL_ID;
-  doc["depth"]          = round(depth * 100.0) / 100.0;
-  doc["waterLevel"]     = round(depth * 100.0) / 100.0;
-  doc["temperature"]    = round(temperature * 10.0) / 10.0;
-  doc["pH"]             = round(pH * 100.0) / 100.0;
-  doc["turbidity"]      = round(turbidity * 10.0) / 10.0;
-  doc["batteryLevel"]   = round(batteryLevel);
-  doc["signalStrength"] = round(signalStrength);
-
-  String body;
-  serializeJson(doc, body);
-
-  Serial.printf("[DATA] POST %s\n", url.c_str());
-  Serial.printf("       Depth=%.2fm  Temp=%.1f°C  pH=%.2f  Turb=%.1f  Batt=%.0f%%\n",
-                depth, temperature, pH, turbidity, batteryLevel);
-
-  int httpCode = http.POST(body);
-
-  if (httpCode == 200) {
-    String response = http.getString();
-    Serial.printf("[DATA] OK: %s\n", response.c_str());
-    http.end();
-    return true;
-  } else {
-    String response = http.getString();
-    Serial.printf("[DATA] Error (HTTP %d): %s\n", httpCode, response.c_str());
-    http.end();
-    return false;
-  }
-}
-
-// =============================================================
-//                      SETUP & LOOP
-// =============================================================
-
 void setup() {
   Serial.begin(115200);
   delay(1000);
 
-  Serial.println("========================================");
-  Serial.println("  Canal Monitoring System — ESP32");
-  Serial.printf("  Device ID : %s\n", DEVICE_ID);
-  Serial.printf("  Canal ID  : %s\n", CANAL_ID);
-  Serial.printf("  Server    : %s\n", SERVER_URL);
-  Serial.printf("  Interval  : %d seconds\n", SEND_INTERVAL);
-  Serial.println("========================================");
+  Serial.println("\n\n========================================");
+  Serial.println("  Canal Monitoring — ESP32 + SIM800L");
+  Serial.println("  Device : " DEVICE_ID);
+  Serial.println("  Canal  : " CANAL_ID);
+  Serial.println("  Server : " SERVER_URL);
+  Serial.println("========================================\n");
 
-  // Configure sensor pins
-  pinMode(TRIG_PIN, OUTPUT);
-  pinMode(ECHO_PIN, INPUT);
+  // Battery ADC
+  analogSetPinAttenuation(BATTERY_PIN, ADC_11db);
 
-  // Connect to Wi-Fi
-  connectWiFi();
+  // I2C master
+  Wire.begin(I2C_SDA, I2C_SCL);
+  Serial.println("[I2C] Initialised (SDA=" + String(I2C_SDA) +
+                 ", SCL=" + String(I2C_SCL) + ")");
 
-  // Register device with backend
-  if (WiFi.status() == WL_CONNECTED) {
-    deviceRegistered = registerDevice();
+  // SIM800L serial
+  SerialGSM.begin(9600, SERIAL_8N1, GSM_RX, GSM_TX);
+  Serial.println("[GSM] Serial started on RX=" + String(GSM_RX) +
+                 " TX=" + String(GSM_TX));
+
+  delay(3000);  // let SIM800L boot
+  initGSM();
+
+  Serial.println("\n[SYS] Ready — entering main loop\n");
+}
+
+// =============================================================
+//                          LOOP
+// =============================================================
+void loop() {
+  unsigned long now = millis();
+
+  // 1. Read sensors from Nano
+  if (now - lastI2CRead >= I2C_READ_INTERVAL) {
+    lastI2CRead = now;
+    readI2CData();
+  }
+
+  // 2. Periodically verify GPRS is still up
+  if (now - lastGSMCheck >= GSM_RECONNECT_INTERVAL) {
+    lastGSMCheck = now;
+    ensureGPRS();
+  }
+
+  // 3. Send data to backend
+  if (now - lastDataSend >= DATA_SEND_INTERVAL) {
+    lastDataSend = now;
+
+    readBatteryVoltage();
+
+    // Register once
     if (!deviceRegistered) {
-      Serial.println("[WARN] Registration failed — will retry before first send");
+      deviceRegistered = registerDevice();
     }
+
+    sendDataToServer();
   }
 }
 
-void loop() {
-  // Ensure Wi-Fi is connected
-  connectWiFi();
+// =============================================================
+//                     SENSOR READING
+// =============================================================
 
-  unsigned long now = millis();
+/**
+ * Read 4 bytes from the Arduino Nano over I2C:
+ *   [distanceHigh, distanceLow, radarHigh, radarLow]
+ */
+void readI2CData() {
+  Wire.requestFrom(I2C_SLAVE_ADDR, 4);
 
-  // Send data every SEND_INTERVAL seconds
-  if (now - lastSendTime >= (unsigned long)SEND_INTERVAL * 1000) {
-    lastSendTime = now;
+  if (Wire.available() == 4) {
+    byte uH = Wire.read();
+    byte uL = Wire.read();
+    byte rH = Wire.read();
+    byte rL = Wire.read();
 
-    // Retry registration if it hasn't succeeded yet
-    if (!deviceRegistered) {
-      deviceRegistered = registerDevice();
-      if (!deviceRegistered) {
-        Serial.println("[WARN] Still not registered — skipping this reading");
-        return;
-      }
-    }
+    ultrasonicDistance = (uH << 8) | uL;  // cm
+    radarStatus       = (rH << 8) | rL;   // 0 or 1
 
-    // ── Read all sensors ──
-    float depth       = readUltrasonicDepth();
-    float temperature = readTemperature();
-    float pH          = readPH();
-    float turbidity   = readTurbidity();
-    float battery     = readBatteryLevel();
-    float rssi        = getSignalStrength();
+    Serial.printf("[I2C] distance=%u cm, radar=%d\n",
+                  ultrasonicDistance, radarStatus);
+  } else {
+    Serial.println("[I2C] WARN — expected 4 bytes, got " +
+                   String(Wire.available()));
+  }
+}
 
-    // Skip if ultrasonic reading failed
-    if (depth < 0) {
-      Serial.println("[WARN] Bad depth reading — skipping");
-      return;
-    }
+/**
+ * Read battery voltage through a voltage divider.
+ * Maps 11.0 V → 0 %, 12.6 V → 100 %.
+ */
+void readBatteryVoltage() {
+  long rawADC = 0;
+  for (int i = 0; i < 10; i++) {
+    rawADC += analogRead(BATTERY_PIN);
+    delay(10);
+  }
+  rawADC /= 10;
 
-    readingCount++;
-    Serial.printf("\n── Reading #%d ──\n", readingCount);
+  float pinVoltage = rawADC * ADC_REF;
+  batteryVoltage   = pinVoltage * ((R1 + R2) / R2);
+  batteryPercent   = (int)((batteryVoltage - 11.0) / (12.6 - 11.0) * 100.0);
+  batteryPercent   = constrain(batteryPercent, 0, 100);
 
-    // ── Send to backend ──
-    bool ok = sendReading(depth, temperature, pH, turbidity, battery, rssi);
+  Serial.printf("[BAT] ADC=%ld  Vbat=%.2fV  %d%%\n",
+                rawADC, batteryVoltage, batteryPercent);
+}
 
-    if (ok) {
-      Serial.println("[OK] Data sent successfully");
-    } else {
-      Serial.println("[ERR] Failed to send data");
+// =============================================================
+//                     GSM / GPRS
+// =============================================================
+
+/** Full GSM + GPRS initialisation sequence. */
+void initGSM() {
+  Serial.println("[GSM] Initialising...");
+
+  sendATCommand("AT",                                  1000);
+  sendATCommand("ATE0",                                500);   // echo off
+  sendATCommand("AT+CFUN=1",                           2000);
+  sendATCommand("AT+CPIN?",                            1000);
+  sendATCommand("AT+CSQ",                              1000);  // signal quality
+  sendATCommand("AT+CREG?",                            1000);  // network reg
+
+  // GPRS bearer
+  sendATCommand("AT+SAPBR=3,1,\"CONTYPE\",\"GPRS\"",  2000);
+  sendATCommand("AT+SAPBR=3,1,\"APN\",\"internet\"",  2000);  // change APN if needed
+  sendATCommand("AT+SAPBR=1,1",                        5000);  // open bearer
+  delay(2000);
+  sendATCommand("AT+SAPBR=2,1",                        2000);  // query IP
+
+  // NOTE: AT+HTTPSSL must be called inside an HTTP session (after HTTPINIT).
+  // It is set in httpPost() — do NOT call it here.
+
+  Serial.println("[GSM] Init complete");
+}
+
+/** Quick check — reopen GPRS bearer if it dropped. */
+void ensureGPRS() {
+  Serial.println("[GSM] Checking GPRS...");
+  String resp = sendATCommandGetResponse("AT+SAPBR=2,1", 2000);
+  if (resp.indexOf("0.0.0.0") >= 0 || resp.indexOf("ERROR") >= 0) {
+    Serial.println("[GSM] Bearer down — reopening");
+    sendATCommand("AT+SAPBR=1,1", 5000);
+    delay(2000);
+    sendATCommand("AT+SAPBR=2,1", 2000);
+  }
+}
+
+// =============================================================
+//                     HTTP HELPERS
+// =============================================================
+
+/**
+ * Register this device with POST /api/esp32/register
+ * Body:  { "canalId": "<CANAL_ID>" }
+ * Header: X-ESP32-ID: <DEVICE_ID>
+ */
+bool registerDevice() {
+  Serial.println("\n--- Registering Device ---");
+
+  String jsonData = "{\"canalId\":\"" + String(CANAL_ID) + "\"}";
+  String url = String(SERVER_URL) + "/api/esp32/register";
+
+  int httpStatus = httpPost(url, jsonData);
+
+  if (httpStatus == 200) {
+    Serial.println("[REG] Success");
+    return true;
+  } else {
+    Serial.printf("[REG] Failed (HTTP %d)\n", httpStatus);
+    return false;
+  }
+}
+
+/**
+ * Send sensor data with POST /api/esp32/data
+ * JSON payload:
+ *   {
+ *     "canalId":      "<CANAL_ID>",
+ *     "distance":     <ultrasonicDistance>,   // cm — raw from sensor
+ *     "radarStatus":  <radarStatus>,
+ *     "batteryLevel": <batteryPercent>
+ *   }
+ *
+ * The backend converts distance → depth using the canal's depthOffset,
+ * then calculates flow via Manning's equation.
+ */
+void sendDataToServer() {
+  sendCount++;
+  Serial.printf("\n--- Sending Reading #%d ---\n", sendCount);
+
+  // Build JSON
+  String jsonData = "{";
+  jsonData += "\"canalId\":\"" + String(CANAL_ID) + "\",";
+  jsonData += "\"distance\":" + String(ultrasonicDistance) + ",";
+  jsonData += "\"radarStatus\":" + String(radarStatus) + ",";
+  jsonData += "\"batteryLevel\":" + String(batteryPercent);
+  jsonData += "}";
+
+  String url = String(SERVER_URL) + "/api/esp32/data";
+
+  Serial.println("[DATA] " + jsonData);
+  int httpStatus = httpPost(url, jsonData);
+
+  if (httpStatus == 200) {
+    Serial.printf("[DATA] OK — reading #%d sent\n", sendCount);
+  } else {
+    Serial.printf("[DATA] Error (HTTP %d)\n", httpStatus);
+  }
+}
+
+/**
+ * Silently terminate any stale HTTP session.
+ * Ignores ERROR — this is intentional cleanup before a fresh session.
+ */
+void httpForceTerminate() {
+  SerialGSM.println("AT+HTTPTERM");
+  delay(1000);
+  // Drain response silently
+  while (SerialGSM.available()) SerialGSM.read();
+}
+
+/**
+ * Perform an HTTP POST via SIM800L AT commands.
+ * Returns the HTTP status code (e.g. 200), or -1 on error.
+ */
+int httpPost(String url, String jsonBody) {
+  // 1. Silently kill any leftover HTTP session
+  httpForceTerminate();
+  delay(300);
+
+  // 2. Start a new HTTP session — abort if it fails
+  String initResp = sendATCommandGetResponse("AT+HTTPINIT", 2000);
+  if (initResp.indexOf("ERROR") >= 0) {
+    Serial.println("[HTTP] HTTPINIT failed — aborting");
+    return -1;
+  }
+  delay(300);
+
+  // 3. Set bearer profile
+  sendATCommand("AT+HTTPPARA=\"CID\",1", 1000);
+  delay(200);
+
+  // 4. Enable SSL (Render.com requires HTTPS)
+  //    Must be called INSIDE the HTTP session (after HTTPINIT)
+  sendATCommand("AT+HTTPSSL=1", 1000);
+  delay(200);
+
+  // 5. Set URL
+  String urlCmd = "AT+HTTPPARA=\"URL\",\"" + url + "\"";
+  sendATCommand(urlCmd, 2000);
+  delay(200);
+
+  // 6. Set Content-Type
+  sendATCommand("AT+HTTPPARA=\"CONTENT\",\"application/json\"", 1000);
+  delay(200);
+
+  // 7. Custom header: X-ESP32-ID
+  String hdrCmd = "AT+HTTPPARA=\"USERDATA\",\"X-ESP32-ID: " +
+                  String(DEVICE_ID) + "\"";
+  sendATCommand(hdrCmd, 1000);
+  delay(200);
+
+  // 8. Tell SIM800L we want to upload <length> bytes (10 s timeout)
+  String dataCmd = "AT+HTTPDATA=" + String(jsonBody.length()) + ",10000";
+  String dataResp = sendATCommandGetResponse(dataCmd, 3000);
+
+  // Wait for the "DOWNLOAD" prompt before writing the body
+  if (dataResp.indexOf("DOWNLOAD") < 0) {
+    Serial.println("[HTTP] No DOWNLOAD prompt — aborting");
+    sendATCommand("AT+HTTPTERM", 1000);
+    return -1;
+  }
+
+  // 9. Send JSON body
+  SerialGSM.print(jsonBody);
+  delay(2000);   // give time for the module to accept the data
+
+  // 10. Execute POST — use 15 s timeout (SSL handshake is slow)
+  String actionResp = sendATCommandGetResponse("AT+HTTPACTION=1", 15000);
+  delay(1000);
+
+  // 11. Parse HTTP status from  +HTTPACTION: 1,<status>,<datalen>
+  int httpStatus = parseHTTPStatus(actionResp);
+
+  // 12. Read response body (debug)
+  if (httpStatus > 0) {
+    sendATCommand("AT+HTTPREAD", 2000);
+    delay(300);
+  }
+
+  // 13. Always terminate the HTTP session
+  sendATCommand("AT+HTTPTERM", 1000);
+  delay(300);
+
+  return httpStatus;
+}
+
+/**
+ * Parse the HTTP status code from a +HTTPACTION response.
+ *   e.g.  +HTTPACTION: 1,200,123  →  200
+ */
+int parseHTTPStatus(String response) {
+  int idx = response.indexOf("+HTTPACTION:");
+  if (idx < 0) return -1;
+
+  int firstComma  = response.indexOf(',', idx);
+  int secondComma = response.indexOf(',', firstComma + 1);
+  if (firstComma < 0 || secondComma < 0) return -1;
+
+  String code = response.substring(firstComma + 1, secondComma);
+  code.trim();
+  return code.toInt();
+}
+
+// =============================================================
+//                     AT COMMAND HELPERS
+// =============================================================
+
+/** Send an AT command and print its response (fire-and-forget). */
+void sendATCommand(String command, int timeout) {
+  Serial.print(">> ");
+  Serial.println(command);
+  SerialGSM.println(command);
+
+  unsigned long start = millis();
+  while (millis() - start < (unsigned long)timeout) {
+    while (SerialGSM.available()) {
+      Serial.write(SerialGSM.read());
     }
   }
+  Serial.println();
+}
+
+/** Send an AT command and return the full response as a String. */
+String sendATCommandGetResponse(String command, int timeout) {
+  Serial.print(">> ");
+  Serial.println(command);
+  SerialGSM.println(command);
+
+  String response = "";
+  unsigned long start = millis();
+  while (millis() - start < (unsigned long)timeout) {
+    while (SerialGSM.available()) {
+      char c = SerialGSM.read();
+      Serial.write(c);
+      response += c;
+    }
+  }
+  Serial.println();
+  return response;
 }

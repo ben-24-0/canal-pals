@@ -20,14 +20,14 @@ export default function CanalModulesHub() {
   const [canals, setCanals] = useState<CanalInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
-  const [typeFilter, setTypeFilter] = useState<string>("all");
+  const [typeFilter, setTypeFilter] = useState<string>("irrigation");
 
   const { readings, connected } = useAllCanalsSSE();
   const { isPinned, toggle, pinnedIds, getPinnedCanals } = useFavourites();
 
   // Fetch canal list on mount
   useEffect(() => {
-    fetch(`${BACKEND_URL}/api/canals?limit=200`)
+    fetch(`${BACKEND_URL}/api/canals?active=true&limit=200`)
       .then((r) => r.json())
       .then((json) => setCanals(json.canals ?? []))
       .catch(console.error)
@@ -36,7 +36,8 @@ export default function CanalModulesHub() {
 
   // Filter + search
   const filtered = canals.filter((c) => {
-    if (typeFilter !== "all" && c.type !== typeFilter) return false;
+    if (c.type !== "irrigation") return false;
+    if (typeFilter !== "irrigation" && c.type !== typeFilter) return false;
     if (search.trim()) {
       const q = search.toLowerCase();
       return (
@@ -80,21 +81,21 @@ export default function CanalModulesHub() {
       </div>
 
       {/* Search + Filter bar */}
-      <div className="flex flex-col sm:flex-row gap-3">
+      <div className="flex flex-col gap-3 sm:flex-row">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
           <input
             type="text"
-            placeholder="Search by name, ID, or type…"
+            placeholder="Search by name or ID..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="w-full pl-9 pr-3 py-2 rounded-lg border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
           />
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <SlidersHorizontal className="w-4 h-4 text-muted-foreground" />
-          {["all", "irrigation", "drainage", "water-supply"].map((t) => (
+          {["irrigation"].map((t) => (
             <button
               key={t}
               onClick={() => setTypeFilter(t)}
@@ -104,7 +105,7 @@ export default function CanalModulesHub() {
                   : "bg-background text-muted-foreground hover:bg-muted"
               }`}
             >
-              {t === "all" ? "All" : t.charAt(0).toUpperCase() + t.slice(1)}
+              {t.charAt(0).toUpperCase() + t.slice(1)}
             </button>
           ))}
         </div>

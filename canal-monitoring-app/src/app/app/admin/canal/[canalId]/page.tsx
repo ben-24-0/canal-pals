@@ -1,9 +1,18 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { formatDistanceToNow } from "date-fns";
-import { Gauge, Settings2, Info, BarChart3, Save, Loader2 } from "lucide-react";
+import {
+  Gauge,
+  Settings2,
+  Info,
+  BarChart3,
+  Save,
+  Loader2,
+  Trash2,
+  AlertTriangle,
+} from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
@@ -53,6 +62,7 @@ function Row({ label, value }: { label: string; value: React.ReactNode }) {
 
 export default function AdminCanalDashboard() {
   const params = useParams();
+  const router = useRouter();
   const canalId = params.canalId as string;
 
   const [canal, setCanal] = useState<CanalInfo | null>(null);
@@ -83,7 +93,34 @@ export default function AdminCanalDashboard() {
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saveSuccess, setSaveSuccess] = useState(false);
-  
+  const [isEditMode, setIsEditMode] = useState(false);
+
+  // ─── Delete State ────────────────────────────────────────────────
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deleteConfirmText, setDeleteConfirmText] = useState("");
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+
+  const handleDeleteCanal = async () => {
+    setDeleting(true);
+    setDeleteError(null);
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/canals/${canalId}`, {
+        method: "DELETE",
+      });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        throw new Error(j.error ?? j.message ?? `HTTP ${res.status}`);
+      }
+      // Redirect to main app page after successful delete
+      router.push("/app");
+    } catch (err) {
+      setDeleteError(err instanceof Error ? err.message : "Delete failed");
+    } finally {
+      setDeleting(false);
+    }
+  };
+
   // Form state for editable fields
   const [editForm, setEditForm] = useState({
     isActive: true,
@@ -121,6 +158,12 @@ export default function AdminCanalDashboard() {
   }, [canal]);
 
   const handleSaveSettings = async () => {
+    if (!isEditMode) return;
+    const confirmed = window.confirm(
+      "Save these setting changes for this canal?",
+    );
+    if (!confirmed) return;
+
     setSaving(true);
     setSaveError(null);
     setSaveSuccess(false);
@@ -135,10 +178,18 @@ export default function AdminCanalDashboard() {
         n: parseFloat(editForm.n) || 0.025,
         S: parseFloat(editForm.S) || 0.0005,
         u: parseFloat(editForm.u) || 1,
-        ...(editForm.shape !== "circle" && editForm.b ? { b: parseFloat(editForm.b) } : {}),
-        ...(editForm.shape === "trapezoid" && editForm.z ? { z: parseFloat(editForm.z) } : {}),
-        ...(editForm.shape === "circle" && editForm.D ? { D: parseFloat(editForm.D) } : {}),
-        ...(editForm.depthMax ? { depthMax: parseFloat(editForm.depthMax) } : {}),
+        ...(editForm.shape !== "circle" && editForm.b
+          ? { b: parseFloat(editForm.b) }
+          : {}),
+        ...(editForm.shape === "trapezoid" && editForm.z
+          ? { z: parseFloat(editForm.z) }
+          : {}),
+        ...(editForm.shape === "circle" && editForm.D
+          ? { D: parseFloat(editForm.D) }
+          : {}),
+        ...(editForm.depthMax
+          ? { depthMax: parseFloat(editForm.depthMax) }
+          : {}),
       },
     };
 
@@ -155,6 +206,7 @@ export default function AdminCanalDashboard() {
       }
 
       setSaveSuccess(true);
+      setIsEditMode(false);
       // Re-fetch canal to show updated values
       fetchCanal();
       setTimeout(() => setSaveSuccess(false), 3000);
@@ -206,9 +258,11 @@ export default function AdminCanalDashboard() {
             }`}
           />
         </div>
-        <Badge variant="outline" className="text-amber-600 border-amber-400">
-          Admin View
-        </Badge>
+        <div className="flex items-center gap-2">
+          <Badge variant="outline" className="text-amber-600 border-amber-400">
+            Admin View
+          </Badge>
+        </div>
       </div>
 
       {/* Top info row: metrics + map */}
@@ -377,7 +431,7 @@ export default function AdminCanalDashboard() {
                 <Row label="Max depth" value={`${mp.depthMax} m`} />
               )}
               {canal.depthOffset != null && canal.depthOffset !== 0 && (
-                <Row label="Depth offset" value={`${canal.depthOffset} m`} />
+                <Row label="Sensor height" value={`${canal.depthOffset} cm`} />
               )}
             </div>
           </CardContent>
@@ -424,6 +478,328 @@ export default function AdminCanalDashboard() {
         </CardContent>
       </Card>
 
+      {/* Settings */}
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base flex items-center gap-1.5">
+            <Settings2 className="w-4 h-4" /> Canal Settings
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-5">
+          <div className="flex items-center justify-between rounded-lg border bg-muted/30 p-3">
+            <p className="text-sm text-muted-foreground">
+              {isEditMode
+                ? "Editing enabled. Save or cancel your changes."
+                : "Settings are locked. Click Edit Settings to make changes."}
+            </p>
+            <div className="flex items-center gap-2">
+              {isEditMode ? (
+                <>
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      if (canal) {
+                        setEditForm({
+                          isActive: canal.isActive ?? true,
+                          depthOffset: String(canal.depthOffset ?? 0),
+                          upperLimit: String(canal.upperLimit ?? 20),
+                          lowerLimit: String(canal.lowerLimit ?? 2),
+                          n: String(canal.manningsParams?.n ?? 0.025),
+                          S: String(canal.manningsParams?.S ?? 0.0005),
+                          b: String(canal.manningsParams?.b ?? 3.0),
+                          z: String(canal.manningsParams?.z ?? 1.5),
+                          D: String(canal.manningsParams?.D ?? ""),
+                          u: String(canal.manningsParams?.u ?? 1),
+                          depthMax: String(
+                            canal.manningsParams?.depthMax ?? 2.5,
+                          ),
+                          shape: canal.manningsParams?.shape ?? "trapezoid",
+                        });
+                      }
+                      setIsEditMode(false);
+                      setSaveError(null);
+                    }}
+                    disabled={saving}
+                  >
+                    Cancel Edit
+                  </Button>
+                  <Button onClick={handleSaveSettings} disabled={saving}>
+                    {saving ? (
+                      <>
+                        <Loader2 className="w-4 h-4 mr-1.5 animate-spin" />
+                        Saving…
+                      </>
+                    ) : (
+                      <>
+                        <Save className="w-4 h-4 mr-1.5" />
+                        Save Settings
+                      </>
+                    )}
+                  </Button>
+                </>
+              ) : (
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setIsEditMode(true);
+                    setSaveSuccess(false);
+                    setSaveError(null);
+                  }}
+                >
+                  Edit Settings
+                </Button>
+              )}
+            </div>
+          </div>
+
+          {/* Sensor type + active */}
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label>Sensor Type</Label>
+              <div className="flex gap-2">
+                {(["radar", "ultrasonic"] as const).map((s) => (
+                  <button
+                    key={s}
+                    type="button"
+                    onClick={() =>
+                      setEditForm((p) => ({ ...p, shape: p.shape }))
+                    }
+                    disabled
+                    className={`px-3 py-1.5 text-xs rounded-lg border transition-colors capitalize ${
+                      canal.sensorType === s
+                        ? "bg-primary/10 text-primary border-primary/30"
+                        : "bg-muted text-muted-foreground"
+                    }`}
+                  >
+                    {s}
+                  </button>
+                ))}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Change sensor type via re-registration.
+              </p>
+            </div>
+            <div className="space-y-2">
+              <Label>Active</Label>
+              <div className="flex gap-2">
+                {([true, false] as const).map((v) => (
+                  <button
+                    key={String(v)}
+                    type="button"
+                    onClick={() => setEditForm((p) => ({ ...p, isActive: v }))}
+                    disabled={!isEditMode}
+                    className={`px-3 py-1.5 text-xs rounded-lg border transition-colors ${
+                      editForm.isActive === v
+                        ? "bg-primary text-primary-foreground border-primary"
+                        : "hover:bg-muted"
+                    }`}
+                  >
+                    {v ? "Active" : "Inactive"}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* Sensor height / depthOffset */}
+          {canal.sensorType === "ultrasonic" && (
+            <div className="space-y-2 p-3 rounded-lg bg-muted/50 border">
+              <Label htmlFor="depthOffset" className="font-semibold">
+                Sensor Height above Canal Floor (cm)
+              </Label>
+              <Input
+                id="depthOffset"
+                type="number"
+                step="1"
+                min="0"
+                max="1000"
+                value={editForm.depthOffset}
+                disabled={!isEditMode}
+                onChange={(e) =>
+                  setEditForm((p) => ({ ...p, depthOffset: e.target.value }))
+                }
+                className="max-w-xs"
+              />
+              <p className="text-xs text-muted-foreground">
+                Physical distance (cm) from the ultrasonic sensor down to the
+                canal floor when empty.{" "}
+                <strong>Water depth = this value − measured distance.</strong>
+              </p>
+            </div>
+          )}
+
+          {/* Flow limits */}
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label htmlFor="upperLimit">High Flow Threshold (m³/s)</Label>
+              <Input
+                id="upperLimit"
+                type="number"
+                step="any"
+                value={editForm.upperLimit}
+                disabled={!isEditMode}
+                onChange={(e) =>
+                  setEditForm((p) => ({ ...p, upperLimit: e.target.value }))
+                }
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="lowerLimit">Low Flow Threshold (m³/s)</Label>
+              <Input
+                id="lowerLimit"
+                type="number"
+                step="any"
+                value={editForm.lowerLimit}
+                disabled={!isEditMode}
+                onChange={(e) =>
+                  setEditForm((p) => ({ ...p, lowerLimit: e.target.value }))
+                }
+              />
+            </div>
+          </div>
+
+          {/* Manning's params */}
+          <div className="space-y-3">
+            <p className="text-sm font-medium">
+              Manning&apos;s Equation Parameters
+            </p>
+            <div className="space-y-2">
+              <Label>Cross-Section Shape</Label>
+              <div className="flex gap-2">
+                {(["trapezoid", "rectangle", "circle"] as const).map((s) => (
+                  <button
+                    key={s}
+                    type="button"
+                    onClick={() => setEditForm((p) => ({ ...p, shape: s }))}
+                    disabled={!isEditMode}
+                    className={`px-3 py-1.5 text-xs rounded-lg border transition-colors capitalize ${
+                      editForm.shape === s
+                        ? "bg-primary text-primary-foreground border-primary"
+                        : "hover:bg-muted"
+                    }`}
+                  >
+                    {s}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="mp-n">Manning&apos;s n</Label>
+                <Input
+                  id="mp-n"
+                  type="number"
+                  step="any"
+                  value={editForm.n}
+                  disabled={!isEditMode}
+                  onChange={(e) =>
+                    setEditForm((p) => ({ ...p, n: e.target.value }))
+                  }
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="mp-S">Bed Slope S</Label>
+                <Input
+                  id="mp-S"
+                  type="number"
+                  step="any"
+                  value={editForm.S}
+                  disabled={!isEditMode}
+                  onChange={(e) =>
+                    setEditForm((p) => ({ ...p, S: e.target.value }))
+                  }
+                />
+              </div>
+              {editForm.shape !== "circle" && (
+                <div className="space-y-2">
+                  <Label htmlFor="mp-b">Bottom Width b (m)</Label>
+                  <Input
+                    id="mp-b"
+                    type="number"
+                    step="any"
+                    value={editForm.b}
+                    disabled={!isEditMode}
+                    onChange={(e) =>
+                      setEditForm((p) => ({ ...p, b: e.target.value }))
+                    }
+                  />
+                </div>
+              )}
+              {editForm.shape === "trapezoid" && (
+                <div className="space-y-2">
+                  <Label htmlFor="mp-z">Side Slope z (H:V)</Label>
+                  <Input
+                    id="mp-z"
+                    type="number"
+                    step="any"
+                    value={editForm.z}
+                    disabled={!isEditMode}
+                    onChange={(e) =>
+                      setEditForm((p) => ({ ...p, z: e.target.value }))
+                    }
+                  />
+                </div>
+              )}
+              {editForm.shape === "circle" && (
+                <div className="space-y-2">
+                  <Label htmlFor="mp-D">Diameter D (m)</Label>
+                  <Input
+                    id="mp-D"
+                    type="number"
+                    step="any"
+                    value={editForm.D}
+                    disabled={!isEditMode}
+                    onChange={(e) =>
+                      setEditForm((p) => ({ ...p, D: e.target.value }))
+                    }
+                  />
+                </div>
+              )}
+              <div className="space-y-2">
+                <Label htmlFor="mp-u">Unit Factor u</Label>
+                <Input
+                  id="mp-u"
+                  type="number"
+                  step="any"
+                  value={editForm.u}
+                  disabled={!isEditMode}
+                  onChange={(e) =>
+                    setEditForm((p) => ({ ...p, u: e.target.value }))
+                  }
+                />
+                <p className="text-xs text-muted-foreground">
+                  1 = SI, 1.49 = US
+                </p>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="mp-depthMax">Max Depth (m)</Label>
+                <Input
+                  id="mp-depthMax"
+                  type="number"
+                  step="any"
+                  value={editForm.depthMax}
+                  disabled={!isEditMode}
+                  onChange={(e) =>
+                    setEditForm((p) => ({ ...p, depthMax: e.target.value }))
+                  }
+                />
+              </div>
+            </div>
+          </div>
+
+          {saveError && (
+            <div className="p-3 rounded-lg bg-destructive/10 text-destructive text-sm">
+              {saveError}
+            </div>
+          )}
+          {saveSuccess && (
+            <div className="p-3 rounded-lg bg-green-500/10 text-green-700 dark:text-green-400 text-sm">
+              Settings saved successfully.
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
       {/* Charts */}
       <Card>
         <CardHeader>
@@ -457,6 +833,80 @@ export default function AdminCanalDashboard() {
               <PredictionChart canalId={canalId} />
             </TabsContent>
           </Tabs>
+        </CardContent>
+      </Card>
+
+      {/* Danger Zone — Delete Canal */}
+      <Card className="border-destructive/40">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base flex items-center gap-1.5 text-destructive">
+            <AlertTriangle className="w-4 h-4" /> Danger Zone
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <p className="text-sm text-muted-foreground">
+            Deactivating this canal will hide it from the dashboard and stop
+            accepting new data from the ESP32 device. This action can be
+            reversed by reactivating it from the database.
+          </p>
+
+          {!showDeleteConfirm ? (
+            <Button
+              variant="destructive"
+              onClick={() => setShowDeleteConfirm(true)}
+            >
+              <Trash2 className="w-4 h-4 mr-1.5" />
+              Delete Canal
+            </Button>
+          ) : (
+            <div className="space-y-3 p-4 rounded-lg border border-destructive/30 bg-destructive/5">
+              <p className="text-sm font-medium">
+                Type{" "}
+                <code className="px-1.5 py-0.5 rounded bg-muted font-mono text-xs">
+                  {canal.canalId}
+                </code>{" "}
+                to confirm deletion:
+              </p>
+              <Input
+                value={deleteConfirmText}
+                onChange={(e) => setDeleteConfirmText(e.target.value)}
+                placeholder={canal.canalId}
+                className="max-w-sm font-mono text-sm"
+              />
+              {deleteError && (
+                <p className="text-sm text-destructive">{deleteError}</p>
+              )}
+              <div className="flex gap-2">
+                <Button
+                  variant="destructive"
+                  disabled={deleteConfirmText !== canal.canalId || deleting}
+                  onClick={handleDeleteCanal}
+                >
+                  {deleting ? (
+                    <>
+                      <Loader2 className="w-4 h-4 mr-1.5 animate-spin" />
+                      Deleting…
+                    </>
+                  ) : (
+                    <>
+                      <Trash2 className="w-4 h-4 mr-1.5" />
+                      Confirm Delete
+                    </>
+                  )}
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setShowDeleteConfirm(false);
+                    setDeleteConfirmText("");
+                    setDeleteError(null);
+                  }}
+                >
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>

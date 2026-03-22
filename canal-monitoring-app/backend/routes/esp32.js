@@ -103,7 +103,9 @@ const canalDataValidation = [
   body("distance")
     .optional()
     .isFloat({ min: 0 })
-    .withMessage("Distance must be a non-negative number (cm from sensor to water)"),
+    .withMessage(
+      "Distance must be a non-negative number (cm from sensor to water)",
+    ),
 
   body("radarStatus")
     .optional()
@@ -184,15 +186,15 @@ router.post(
       // Build reading object (plain object, not a Mongoose doc)
       const sensorType = canal.sensorType || "radar";
       let depth = req.body.depth;
-      const rawDistance = req.body.distance;  // cm from ultrasonic sensor
+      const rawDistance = req.body.distance; // cm from ultrasonic sensor
       const rawRadarStatus = req.body.radarStatus;
 
       // ── Convert raw distance to depth if ESP32 sent 'distance' ──
       // distance = sensor-to-water surface (cm).  depthOffset = sensor
       // mounting height above canal bottom (cm).  depth = offset − distance.
-      if (depth == null && rawDistance != null && canal.depthOffset) {
-        depth = Math.max(0, canal.depthOffset - rawDistance);  // cm
-        depth = +(depth / 100).toFixed(4);  // convert cm → metres
+      if (depth == null && rawDistance != null && canal.depthOffset != null) {
+        depth = Math.max(0, canal.depthOffset - rawDistance); // cm
+        depth = +(depth / 100).toFixed(4); // convert cm → metres
         console.log(
           `📐 [DISTANCE→DEPTH] distance=${rawDistance}cm, offset=${canal.depthOffset}cm → depth=${depth}m`,
         );

@@ -33,6 +33,7 @@ interface FormData {
   longitude: string;
   latitude: string;
   sensorType: SensorType;
+  depthOffset: string;
   shape: Shape;
   b: string;
   z: string;
@@ -51,6 +52,7 @@ const DEFAULT_FORM: FormData = {
   longitude: "",
   latitude: "",
   sensorType: "radar",
+  depthOffset: "",
   shape: "trapezoid",
   b: "3.0",
   z: "1.5",
@@ -103,6 +105,9 @@ export default function AddModulePage() {
         coordinates: [parseFloat(form.longitude), parseFloat(form.latitude)],
       },
       sensorType: form.sensorType,
+      ...(form.sensorType === "ultrasonic" && form.depthOffset !== ""
+        ? { depthOffset: parseFloat(form.depthOffset) }
+        : {}),
       manningsParams: {
         shape: form.shape,
         ...(form.shape !== "circle" && form.b ? { b: parseFloat(form.b) } : {}),
@@ -306,6 +311,28 @@ export default function AddModulePage() {
                 </div>
               </div>
 
+              {form.sensorType === "ultrasonic" && (
+                <div className="space-y-2">
+                  <Label htmlFor="depthOffset">
+                    Sensor Height above Canal Floor (cm)
+                  </Label>
+                  <Input
+                    id="depthOffset"
+                    type="number"
+                    step="1"
+                    min="0"
+                    max="1000"
+                    placeholder="e.g. 150"
+                    value={form.depthOffset}
+                    onChange={(e) => update("depthOffset", e.target.value)}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Distance from sensor to canal bottom when empty.
+                    water depth = this value − measured distance.
+                  </p>
+                </div>
+              )}
+
               <div className="grid grid-cols-2 gap-4">
                 {form.shape !== "circle" && (
                   <div className="space-y-2">
@@ -410,6 +437,14 @@ export default function AddModulePage() {
                     <span className="text-muted-foreground">Sensor</span>
                     <p className="capitalize">{form.sensorType}</p>
                   </div>
+                  {form.sensorType === "ultrasonic" && form.depthOffset && (
+                    <div>
+                      <span className="text-muted-foreground">
+                        Sensor Height
+                      </span>
+                      <p>{form.depthOffset} cm</p>
+                    </div>
+                  )}
                   <div>
                     <span className="text-muted-foreground">Coordinates</span>
                     <p className="font-mono">

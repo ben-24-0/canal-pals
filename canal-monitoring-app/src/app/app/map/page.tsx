@@ -1,7 +1,12 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import Map, { Marker, Popup, NavigationControl, ScaleControl } from "react-map-gl/maplibre";
+import Map, {
+  Marker,
+  Popup,
+  NavigationControl,
+  ScaleControl,
+} from "react-map-gl/maplibre";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { formatDistanceToNow } from "date-fns";
 import { X, Filter, Layers, Radio } from "lucide-react";
@@ -11,8 +16,11 @@ import type { CanalInfo, CanalReading } from "@/types/canal";
 import Link from "next/link";
 import { useSession } from "next-auth/react";
 import { useAllCanalsSSE } from "@/hooks/useAllCanalsSSE";
+import { useCanalGroups } from "@/hooks/useCanalGroups";
+import { osmStyle } from "@/lib/mapConfig";
 
-const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://localhost:3001";
+const BACKEND_URL =
+  process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://localhost:3001";
 
 const STATUS_COLOR: Record<string, string> = {
   FLOWING: "#22c55e",
@@ -23,20 +31,32 @@ const STATUS_COLOR: Record<string, string> = {
   ERROR: "#ef4444",
 };
 
-const MAP_STYLES: Record<string, { label: string; url: string }> = {
-  street: { label: "Street", url: "https://tiles.openfreemap.org/styles/liberty" },
-  positron: { label: "Light", url: "https://tiles.openfreemap.org/styles/positron" },
-  dark: { label: "Dark", url: "https://tiles.openfreemap.org/styles/dark" },
+const MAP_STYLES: Record<string, { label: string }> = {
+  street: { label: "Street" },
 };
 
-const ALL_STATUSES = ["FLOWING", "LOW_FLOW", "HIGH_FLOW", "BLOCKED", "STOPPED", "ERROR"];
+const ALL_STATUSES = [
+  "FLOWING",
+  "LOW_FLOW",
+  "HIGH_FLOW",
+  "BLOCKED",
+  "STOPPED",
+  "ERROR",
+];
+const KERALA_FOCUS = { longitude: 76.2711, latitude: 10.8505, zoom: 7.6 };
 
 interface CanalPin {
   canal: CanalInfo;
   reading: CanalReading | null;
 }
 
-const STATUS_CONFIG: Record<string, { label: string; variant: "default" | "secondary" | "destructive" | "outline" }> = {
+const STATUS_CONFIG: Record<
+  string,
+  {
+    label: string;
+    variant: "default" | "secondary" | "destructive" | "outline";
+  }
+> = {
   FLOWING: { label: "Active", variant: "default" },
   LOW_FLOW: { label: "Low Flow", variant: "secondary" },
   HIGH_FLOW: { label: "High Flow", variant: "destructive" },
@@ -52,15 +72,20 @@ export default function MapPage() {
   const [canalList, setCanalList] = useState<CanalInfo[]>([]);
   const [selected, setSelected] = useState<CanalPin | null>(null);
   const [mapStyle, setMapStyle] = useState<keyof typeof MAP_STYLES>("street");
-  const [filterStatuses, setFilterStatuses] = useState<Set<string>>(new Set(ALL_STATUSES));
+  const [filterStatuses, setFilterStatuses] = useState<Set<string>>(
+    new Set(ALL_STATUSES),
+  );
   const [showFilters, setShowFilters] = useState(false);
   const [lastRefreshed, setLastRefreshed] = useState<Date>(new Date());
+  const [userMovedMap, setUserMovedMap] = useState(false);
+  const [mapView, setMapView] = useState(KERALA_FOCUS);
 
   const { readings: liveReadings, connected: sseConnected } = useAllCanalsSSE();
+  const { getGroupForCanal, groups } = useCanalGroups();
 
   // Fetch canal list once on mount (static info)
   useEffect(() => {
-    fetch(`${BACKEND_URL}/api/canals?limit=200`)
+    fetch(`${BACKEND_URL}/api/canals?active=true&limit=200`)
       .then((r) => r.json())
       .then((json) => setCanalList(json.canals ?? []))
       .catch(console.error);
@@ -71,6 +96,47 @@ export default function MapPage() {
     if (liveReadings.size > 0) setLastRefreshed(new Date());
   }, [liveReadings]);
 
+  // Focus map on canal cluster; fallback to Kerala
+  useEffect(() => {
+    if (userMovedMap) return;
+    if (canalList.length === 0) {
+      setMapView(KERALA_FOCUS);
+      return;
+    }
+
+    const coords = canalList
+      .map((c) => c.location.coordinates)
+      .filter(
+        (v) =>
+          Array.isArray(v) && Number.isFinite(v[0]) && Number.isFinite(v[1]),
+      );
+
+    if (coords.length === 0) {
+      setMapView(KERALA_FOCUS);
+      return;
+    }
+
+    const lons = coords.map((c) => c[0]);
+    const lats = coords.map((c) => c[1]);
+    const minLon = Math.min(...lons);
+    const maxLon = Math.max(...lons);
+    const minLat = Math.min(...lats);
+    const maxLat = Math.max(...lats);
+
+    const span = Math.max(maxLon - minLon, maxLat - minLat);
+    let zoom = 7.8;
+    if (span < 0.05) zoom = 12;
+    else if (span < 0.2) zoom = 10.5;
+    else if (span < 0.6) zoom = 9.3;
+    else if (span < 1.2) zoom = 8.3;
+
+    setMapView({
+      longitude: (minLon + maxLon) / 2,
+      latitude: (minLat + maxLat) / 2,
+      zoom,
+    });
+  }, [canalList, userMovedMap]);
+
   // Derive pins by merging static canal list with live SSE readings
   const pins: CanalPin[] = canalList.map((c) => ({
     canal: c,
@@ -78,8 +144,15 @@ export default function MapPage() {
   }));
 
   const visiblePins = pins.filter((p) =>
-    filterStatuses.has(p.reading?.status ?? "STOPPED")
+    filterStatuses.has(p.reading?.status ?? "STOPPED"),
   );
+
+  const visibleGroupIds = new Set(
+    visiblePins
+      .map((p) => getGroupForCanal(p.canal.canalId)?.id)
+      .filter((id): id is string => Boolean(id)),
+  );
+  const visibleGroups = groups.filter((g) => visibleGroupIds.has(g.id));
 
   const toggleStatus = (s: string) => {
     setFilterStatuses((prev) => {
@@ -93,9 +166,19 @@ export default function MapPage() {
   return (
     <div className="relative w-full h-[calc(100vh-4rem)] rounded-lg overflow-hidden">
       <Map
-        initialViewState={{ longitude: 0, latitude: 20, zoom: 2 }}
+        longitude={mapView.longitude}
+        latitude={mapView.latitude}
+        zoom={mapView.zoom}
         style={{ width: "100%", height: "100%" }}
-        mapStyle={MAP_STYLES[mapStyle].url}
+        mapStyle={osmStyle}
+        onMove={(evt) => {
+          setMapView({
+            longitude: evt.viewState.longitude,
+            latitude: evt.viewState.latitude,
+            zoom: evt.viewState.zoom,
+          });
+          setUserMovedMap(true);
+        }}
         onClick={() => setSelected(null)}
       >
         <NavigationControl position="top-right" />
@@ -104,6 +187,7 @@ export default function MapPage() {
         {visiblePins.map(({ canal, reading }) => {
           const status = reading?.status ?? "STOPPED";
           const [lon, lat] = canal.location.coordinates;
+          const group = getGroupForCanal(canal.canalId);
           if (!lon || !lat) return null;
           return (
             <Marker
@@ -119,7 +203,10 @@ export default function MapPage() {
               <div
                 title={canal.name}
                 className="w-4 h-4 rounded-full border-2 border-white shadow-md cursor-pointer hover:scale-125 transition-transform"
-                style={{ backgroundColor: STATUS_COLOR[status] ?? "#94a3b8" }}
+                style={{
+                  backgroundColor:
+                    group?.color ?? STATUS_COLOR[status] ?? "#94a3b8",
+                }}
               />
             </Marker>
           );
@@ -137,31 +224,73 @@ export default function MapPage() {
             <div className="p-2 space-y-2">
               <div className="flex items-start justify-between gap-2">
                 <div>
-                  <p className="font-semibold text-foreground text-sm">{selected.canal.name}</p>
-                  <p className="font-mono text-[10px] text-muted-foreground">{selected.canal.canalId}</p>
+                  <p className="font-semibold text-foreground text-sm">
+                    {selected.canal.name}
+                  </p>
+                  <p className="font-mono text-[10px] text-muted-foreground">
+                    {selected.canal.canalId}
+                  </p>
                 </div>
-                <button onClick={() => setSelected(null)} className="text-muted-foreground hover:text-foreground">
+                <button
+                  onClick={() => setSelected(null)}
+                  className="text-muted-foreground hover:text-foreground"
+                >
                   <X className="w-3.5 h-3.5" />
                 </button>
               </div>
 
               {selected.reading && (
                 <>
-                  <Badge variant={STATUS_CONFIG[selected.reading.status]?.variant ?? "outline"}>
-                    {STATUS_CONFIG[selected.reading.status]?.label ?? selected.reading.status}
+                  <Badge
+                    variant={
+                      STATUS_CONFIG[selected.reading.status]?.variant ??
+                      "outline"
+                    }
+                  >
+                    {STATUS_CONFIG[selected.reading.status]?.label ??
+                      selected.reading.status}
                   </Badge>
+                  {getGroupForCanal(selected.canal.canalId) && (
+                    <Badge
+                      variant="outline"
+                      style={{
+                        borderColor: getGroupForCanal(selected.canal.canalId)
+                          ?.color,
+                      }}
+                    >
+                      Group: {getGroupForCanal(selected.canal.canalId)?.name}
+                    </Badge>
+                  )}
                   <div className="text-xs space-y-1">
                     {selected.reading.flowRate != null && (
-                      <p>Flow: <span className="font-medium">{selected.reading.flowRate.toFixed(2)} m³/s</span></p>
+                      <p>
+                        Flow:{" "}
+                        <span className="font-medium">
+                          {selected.reading.flowRate.toFixed(2)} m³/s
+                        </span>
+                      </p>
                     )}
                     {selected.reading.depth != null && (
-                      <p>Depth: <span className="font-medium">{selected.reading.depth.toFixed(2)} m</span></p>
+                      <p>
+                        Depth:{" "}
+                        <span className="font-medium">
+                          {selected.reading.depth.toFixed(2)} m
+                        </span>
+                      </p>
                     )}
                     {selected.reading.temperature != null && (
-                      <p>Temp: <span className="font-medium">{selected.reading.temperature.toFixed(1)} °C</span></p>
+                      <p>
+                        Temp:{" "}
+                        <span className="font-medium">
+                          {selected.reading.temperature.toFixed(1)} °C
+                        </span>
+                      </p>
                     )}
                     <p className="text-muted-foreground">
-                      {formatDistanceToNow(new Date(selected.reading.timestamp), { addSuffix: true })}
+                      {formatDistanceToNow(
+                        new Date(selected.reading.timestamp),
+                        { addSuffix: true },
+                      )}
                     </p>
                   </div>
                   <Separator />
@@ -169,7 +298,11 @@ export default function MapPage() {
               )}
 
               <Link
-                href={isAdmin ? `/app/admin/canal/${selected.canal.canalId}` : `/app/canal/${selected.canal.canalId}`}
+                href={
+                  isAdmin
+                    ? `/app/admin/canal/${selected.canal.canalId}`
+                    : `/app/canal/${selected.canal.canalId}`
+                }
                 className="text-xs text-primary underline-offset-2 hover:underline"
               >
                 View Dashboard →
@@ -217,7 +350,10 @@ export default function MapPage() {
           {showFilters && (
             <div className="px-2 pb-2 space-y-1">
               {ALL_STATUSES.map((s) => (
-                <label key={s} className="flex items-center gap-2 cursor-pointer">
+                <label
+                  key={s}
+                  className="flex items-center gap-2 cursor-pointer"
+                >
                   <input
                     type="checkbox"
                     checked={filterStatuses.has(s)}
@@ -228,7 +364,9 @@ export default function MapPage() {
                     className="inline-block w-2.5 h-2.5 rounded-full"
                     style={{ backgroundColor: STATUS_COLOR[s] }}
                   />
-                  <span className="text-xs">{STATUS_CONFIG[s]?.label ?? s}</span>
+                  <span className="text-xs">
+                    {STATUS_CONFIG[s]?.label ?? s}
+                  </span>
                 </label>
               ))}
             </div>
@@ -240,7 +378,9 @@ export default function MapPage() {
       <div className="absolute bottom-3 right-3 z-10 flex items-center gap-2 bg-background/90 backdrop-blur px-3 py-1.5 rounded-lg shadow text-xs text-muted-foreground">
         <span>{visiblePins.length} canals shown</span>
         <Separator orientation="vertical" className="h-4" />
-        <span>Updated {formatDistanceToNow(lastRefreshed, { addSuffix: true })}</span>
+        <span>
+          Updated {formatDistanceToNow(lastRefreshed, { addSuffix: true })}
+        </span>
         <Separator orientation="vertical" className="h-4" />
         <span
           className={`w-2 h-2 rounded-full ${sseConnected ? "bg-green-500 animate-pulse" : "bg-yellow-500"}`}
@@ -255,11 +395,37 @@ export default function MapPage() {
         <div className="grid grid-cols-2 gap-x-3 gap-y-0.5">
           {ALL_STATUSES.map((s) => (
             <div key={s} className="flex items-center gap-1.5">
-              <span className="inline-block w-2.5 h-2.5 rounded-full" style={{ backgroundColor: STATUS_COLOR[s] }} />
-              <span className="text-[11px] text-muted-foreground">{STATUS_CONFIG[s]?.label ?? s}</span>
+              <span
+                className="inline-block w-2.5 h-2.5 rounded-full"
+                style={{ backgroundColor: STATUS_COLOR[s] }}
+              />
+              <span className="text-[11px] text-muted-foreground">
+                {STATUS_CONFIG[s]?.label ?? s}
+              </span>
             </div>
           ))}
         </div>
+
+        {visibleGroups.length > 0 && (
+          <>
+            <p className="text-xs font-medium text-foreground mt-2 mb-1">
+              Groups
+            </p>
+            <div className="grid grid-cols-1 gap-y-0.5">
+              {visibleGroups.map((group) => (
+                <div key={group.id} className="flex items-center gap-1.5">
+                  <span
+                    className="inline-block w-2.5 h-2.5 rounded-full"
+                    style={{ backgroundColor: group.color }}
+                  />
+                  <span className="text-[11px] text-muted-foreground">
+                    {group.name}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
       </div>
     </div>
   );

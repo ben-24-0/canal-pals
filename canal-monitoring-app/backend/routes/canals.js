@@ -41,7 +41,8 @@ router.get("/", async (req, res) => {
   try {
     const { active, type, limit = 50, page = 1 } = req.query;
 
-    let query = {};
+    // By default, show only active canals so deactivated canals are hidden.
+    let query = { isActive: true };
     if (active !== undefined) {
       query.isActive = active === "true";
     }
@@ -255,8 +256,8 @@ router.put(
 
     body("depthOffset")
       .optional()
-      .isFloat({ min: -10, max: 10 })
-      .withMessage("depthOffset must be between -10 and 10"),
+      .isFloat({ min: 0, max: 1000 })
+      .withMessage("depthOffset must be between 0 and 1000 cm"),
 
     body("upperLimit")
       .optional()

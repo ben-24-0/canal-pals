@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Heart, MapPin, Radio, Zap } from "lucide-react";
+import { BookmarkCheck, BookmarkPlus, MapPin, Radio, Zap } from "lucide-react";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import type { CanalInfo, CanalReading } from "@/types/canal";
@@ -44,7 +44,7 @@ export default function CanalModuleCard({
 
   return (
     <Card className="group relative hover:shadow-lg transition-shadow">
-      {/* Favourite toggle */}
+      {/* Pinned toggle */}
       {onToggleFavourite && (
         <button
           onClick={(e) => {
@@ -52,20 +52,18 @@ export default function CanalModuleCard({
             onToggleFavourite(canal.canalId);
           }}
           className="absolute top-3 right-3 z-10 p-1 rounded-full hover:bg-muted"
-          title={isFavourite ? "Remove from favourites" : "Add to favourites"}
+          title={isFavourite ? "Remove from pinned" : "Pin canal"}
         >
-          <Heart
-            className={`w-4 h-4 transition-colors ${
-              isFavourite
-                ? "fill-red-500 text-red-500"
-                : "text-muted-foreground group-hover:text-red-400"
-            }`}
-          />
+          {isFavourite ? (
+            <BookmarkCheck className="w-4 h-4 text-primary" />
+          ) : (
+            <BookmarkPlus className="w-4 h-4 text-muted-foreground group-hover:text-primary" />
+          )}
         </button>
       )}
 
       <Link href={href}>
-        <CardHeader className="pb-2">
+        <CardHeader className="pb-2 pr-10">
           <div className="flex items-center gap-2">
             <h3 className="font-semibold text-sm truncate flex-1">
               {canal.name}

@@ -127,6 +127,12 @@ export default function LoginPage() {
 
         <div className="mt-4 text-center">
           <Link
+            href="/register"
+            className="text-xs text-primary hover:opacity-80 underline mr-3"
+          >
+            Create account
+          </Link>
+          <Link
             href="/"
             className="text-xs text-muted-foreground hover:text-foreground underline"
           >
