@@ -63,12 +63,12 @@ export default function CanalModuleCard({
       )}
 
       <Link href={href}>
-        <CardHeader className="pb-2 pr-10">
+        <CardHeader className="pb-2 pr-12">
           <div className="flex items-center gap-2">
             <h3 className="font-semibold text-sm truncate flex-1">
               {canal.name}
             </h3>
-            <Badge variant={cfg.variant} className="shrink-0 text-[10px]">
+            <Badge variant={cfg.variant} className="shrink-0 mr-6 text-[10px]">
               {cfg.label}
             </Badge>
           </div>

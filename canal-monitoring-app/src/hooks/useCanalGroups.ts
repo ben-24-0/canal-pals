@@ -51,10 +51,14 @@ export function useCanalGroups() {
   }, [groups, loaded]);
 
   const createGroup = useCallback(
-    (name: string, color: string, region?: string) => {
+    (name: string, color: string, region?: string, canalIds: string[] = []) => {
       const trimmed = name.trim();
       if (trimmed.length < 2) {
         throw new Error("Group name must be at least 2 characters");
+      }
+
+      if (!Array.isArray(canalIds) || canalIds.length === 0) {
+        throw new Error("Select at least one canal for the group");
       }
 
       const next: CanalGroup = {
@@ -62,7 +66,7 @@ export function useCanalGroups() {
         name: trimmed,
         color: safeColor(color),
         region: region?.trim() || undefined,
-        canalIds: [],
+        canalIds: [...new Set(canalIds)],
         createdAt: new Date().toISOString(),
       };
 
@@ -95,6 +99,25 @@ export function useCanalGroups() {
     },
     [],
   );
+
+  const replaceGroupCanals = useCallback((groupId: string, canalIds: string[]) => {
+    if (!Array.isArray(canalIds) || canalIds.length === 0) {
+      throw new Error("Select at least one canal for the group");
+    }
+
+    const uniqueCanals = [...new Set(canalIds)];
+
+    setGroups((prev) => {
+      const removedFromOthers = prev.map((g) => ({
+        ...g,
+        canalIds: g.id === groupId ? g.canalIds : g.canalIds.filter((id) => !uniqueCanals.includes(id)),
+      }));
+
+      return removedFromOthers.map((g) =>
+        g.id === groupId ? { ...g, canalIds: uniqueCanals } : g,
+      );
+    });
+  }, []);
 
   const setCanalGroup = useCallback(
     (canalId: string, groupId: string | null) => {
@@ -133,6 +156,7 @@ export function useCanalGroups() {
     createGroup,
     deleteGroup,
     updateGroup,
+    replaceGroupCanals,
     setCanalGroup,
     getGroupForCanal,
     groupByCanalId,

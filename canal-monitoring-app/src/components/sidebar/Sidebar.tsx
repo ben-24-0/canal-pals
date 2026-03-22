@@ -6,7 +6,6 @@ import { useSession, signOut } from "next-auth/react";
 import {
   Home,
   Map,
-  Star,
   PlusSquare,
   LogOut,
   User,
@@ -18,7 +17,6 @@ import { useEffect, useState } from "react";
 const navItems = [
   { href: "/app", icon: Home, label: "Canal Modules" },
   { href: "/app/map", icon: Map, label: "Map View" },
-  { href: "/app/favourites", icon: Star, label: "Favourites" },
 ];
 
 const adminItems = [
