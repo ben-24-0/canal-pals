@@ -124,4 +124,18 @@
   body {
     @apply bg-background text-foreground;
   }
+
+  input::placeholder,
+  textarea::placeholder,
+  select::placeholder {
+    color: #6f7f97 !important;
+    opacity: 1;
+  }
+
+  .dark input::placeholder,
+  .dark textarea::placeholder,
+  .dark select::placeholder {
+    color: #9aaec9 !important;
+    opacity: 1;
+  }
 }

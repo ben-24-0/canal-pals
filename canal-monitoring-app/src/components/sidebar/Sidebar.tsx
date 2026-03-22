@@ -48,12 +48,13 @@ export default function Sidebar() {
     return pathname.startsWith(href);
   }
 
-  const handleSignOut = () => {
-    const callbackUrl =
-      typeof window !== "undefined"
-        ? `${window.location.origin}/login`
-        : "/login";
-    signOut({ callbackUrl });
+  const handleSignOut = async () => {
+    await signOut({ redirect: false });
+
+    if (typeof window !== "undefined") {
+      window.location.assign(`${window.location.origin}/`);
+      return;
+    }
   };
 
   return (

@@ -148,6 +148,15 @@ const canalReadingSchema = new mongoose.Schema(
       freeMemory: Number, // in bytes
       resetReason: String,
     },
+    sampleCount: {
+      type: Number,
+      min: 1,
+      default: 1,
+    },
+    aggregationWindowSeconds: {
+      type: Number,
+      min: 1,
+    },
     timestamp: {
       type: Date,
       default: Date.now,

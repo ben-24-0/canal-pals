@@ -56,6 +56,25 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       }
       return session;
     },
+    async redirect({ url, baseUrl }) {
+      if (url.startsWith("/")) return `${baseUrl}${url}`;
+
+      try {
+        const target = new URL(url);
+
+        if (target.origin === baseUrl) return url;
+
+        // Allow localhost/loopback redirects during local development,
+        // even if NEXTAUTH_URL points to a hosted deployment.
+        if (/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(target.origin)) {
+          return url;
+        }
+      } catch {
+        return baseUrl;
+      }
+
+      return baseUrl;
+    },
   },
   pages: {
     signIn: "/login",

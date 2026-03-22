@@ -192,7 +192,7 @@ router.post(
       // ── Convert raw distance to depth if ESP32 sent 'distance' ──
       // distance = sensor-to-water surface (cm).  depthOffset = sensor
       // mounting height above canal bottom (cm).  depth = offset − distance.
-      if (depth == null && rawDistance != null && canal.depthOffset != null) {
+      if (sensorType === "ultrasonic" && rawDistance != null && canal.depthOffset != null) {
         depth = Math.max(0, canal.depthOffset - rawDistance); // cm
         depth = +(depth / 100).toFixed(4); // convert cm → metres
         console.log(
@@ -231,6 +231,9 @@ router.post(
         const finalDepth = Math.max(0, depth);
         const result = calculateFlowRate(finalDepth, mp);
         readingObj.depth = finalDepth;
+        if (readingObj.waterLevel == null) {
+          readingObj.waterLevel = finalDepth;
+        }
         readingObj.flowRate = result.Q;
         readingObj.speed = result.V;
         readingObj.calculatedArea = result.A;

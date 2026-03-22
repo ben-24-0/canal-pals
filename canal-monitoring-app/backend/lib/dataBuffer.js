@@ -22,6 +22,108 @@ const store = new Map();
 
 let flushTimer = null;
 
+const AGGREGATION_WINDOW_SECONDS = 60;
+
+function minuteBucketStart(dateLike) {
+  const date = new Date(dateLike || Date.now());
+  date.setSeconds(0, 0);
+  return date;
+}
+
+function averageDefined(values) {
+  const nums = values.filter((v) => Number.isFinite(v));
+  if (nums.length === 0) return undefined;
+  return nums.reduce((sum, n) => sum + n, 0) / nums.length;
+}
+
+function aggregateReadingsByMinute(readings) {
+  const grouped = new Map();
+
+  for (const reading of readings) {
+    const bucketTime = minuteBucketStart(reading.timestamp || reading.receivedAt);
+    const key = `${reading.canalId}|${bucketTime.toISOString()}`;
+
+    if (!grouped.has(key)) {
+      grouped.set(key, {
+        canalId: reading.canalId,
+        bucketTime,
+        samples: [],
+      });
+    }
+
+    grouped.get(key).samples.push(reading);
+  }
+
+  const averaged = [];
+
+  for (const [, group] of grouped) {
+    const samples = group.samples;
+    const latest = samples.reduce((acc, s) => {
+      const sTime = new Date(s.timestamp || s.receivedAt || Date.now()).getTime();
+      const accTime = new Date(acc.timestamp || acc.receivedAt || Date.now()).getTime();
+      return sTime >= accTime ? s : acc;
+    }, samples[0]);
+
+    const avgFlowRate = averageDefined(samples.map((s) => s.flowRate));
+    const avgSpeed = averageDefined(samples.map((s) => s.speed));
+    const avgDischarge = averageDefined(samples.map((s) => s.discharge));
+    const avgWaterLevel = averageDefined(samples.map((s) => s.waterLevel));
+    const avgDepth = averageDefined(samples.map((s) => s.depth));
+    const avgTemperature = averageDefined(samples.map((s) => s.temperature));
+    const avgPH = averageDefined(samples.map((s) => s.pH));
+    const avgTurbidity = averageDefined(samples.map((s) => s.turbidity));
+    const avgBattery = averageDefined(samples.map((s) => s.batteryLevel));
+    const avgSignal = averageDefined(samples.map((s) => s.signalStrength));
+    const avgArea = averageDefined(samples.map((s) => s.calculatedArea));
+    const avgHydraulicRadius = averageDefined(
+      samples.map((s) => s.calculatedHydraulicRadius),
+    );
+    const avgPerimeter = averageDefined(samples.map((s) => s.wettedPerimeter));
+    const avgRawDistance = averageDefined(samples.map((s) => s.rawDistance));
+
+    const latitude = averageDefined(
+      samples.map((s) => s.gpsCoordinates?.latitude),
+    );
+    const longitude = averageDefined(
+      samples.map((s) => s.gpsCoordinates?.longitude),
+    );
+
+    averaged.push({
+      canalId: group.canalId,
+      esp32DeviceId: latest.esp32DeviceId,
+      status: latest.status || "STOPPED",
+      flowRate: +(avgFlowRate ?? 0).toFixed(6),
+      speed: avgSpeed != null ? +avgSpeed.toFixed(6) : undefined,
+      discharge: avgDischarge != null ? +avgDischarge.toFixed(6) : undefined,
+      waterLevel: avgWaterLevel != null ? +avgWaterLevel.toFixed(6) : undefined,
+      depth: avgDepth != null ? +avgDepth.toFixed(6) : undefined,
+      temperature: avgTemperature != null ? +avgTemperature.toFixed(3) : undefined,
+      pH: avgPH != null ? +avgPH.toFixed(3) : undefined,
+      turbidity: avgTurbidity != null ? +avgTurbidity.toFixed(3) : undefined,
+      batteryLevel: avgBattery != null ? +avgBattery.toFixed(3) : undefined,
+      signalStrength: avgSignal != null ? +avgSignal.toFixed(3) : undefined,
+      calculatedArea: avgArea != null ? +avgArea.toFixed(6) : undefined,
+      calculatedHydraulicRadius:
+        avgHydraulicRadius != null ? +avgHydraulicRadius.toFixed(6) : undefined,
+      wettedPerimeter: avgPerimeter != null ? +avgPerimeter.toFixed(6) : undefined,
+      rawDistance: avgRawDistance != null ? +avgRawDistance.toFixed(6) : undefined,
+      sensorType: latest.sensorType,
+      gpsCoordinates:
+        latitude != null && longitude != null
+          ? { latitude, longitude }
+          : latest.gpsCoordinates,
+      errors: latest.errors,
+      metadata: latest.metadata,
+      sampleCount: samples.length,
+      aggregationWindowSeconds: AGGREGATION_WINDOW_SECONDS,
+      timestamp: group.bucketTime,
+      receivedAt: new Date(),
+    });
+  }
+
+  return averaged;
+}
+
 // ── Public API ──────────────────────────────────────────────────────
 
 /** Push a new reading into the buffer and update "latest". */
@@ -86,8 +188,10 @@ async function flush() {
   }
 
   try {
+    const minuteAverages = aggregateReadingsByMinute(allReadings);
+
     // insertMany is much more efficient than individual saves
-    const result = await CanalReading.insertMany(allReadings, {
+    const result = await CanalReading.insertMany(minuteAverages, {
       ordered: false, // continue on duplicate-key errors
     });
 
