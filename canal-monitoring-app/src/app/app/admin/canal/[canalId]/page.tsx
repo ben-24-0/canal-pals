@@ -247,7 +247,9 @@ export default function AdminCanalDashboard() {
   const now = Date.now();
   const timeSinceLastReading = lastReadingTime ? now - lastReadingTime : null;
   const OFFLINE_THRESHOLD = 2 * 60 * 60 * 1000; // 2 hours in milliseconds
-  const isOffline = !lastReadingTime || timeSinceLastReading > OFFLINE_THRESHOLD;
+  const isOffline =
+    !lastReadingTime ||
+    (timeSinceLastReading !== null && timeSinceLastReading > OFFLINE_THRESHOLD);
   
   const getTimeSinceReading = () => {
     if (!timeSinceLastReading) return "—";
