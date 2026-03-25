@@ -87,13 +87,13 @@ export default function HomePage() {
 
         <div className="relative z-10 mx-auto flex h-full w-full max-w-7xl items-end px-5 pb-8 pt-24 md:px-10 md:pb-10">
           <div className="max-w-3xl">
-
             <h1 className="text-2xl font-bold leading-tight text-white drop-shadow-[0_2px_6px_rgba(0,0,0,0.5)] md:text-5xl">
               Intelligent Irrigation Monitoring System
             </h1>
             <p className="mt-4 max-w-2xl text-sm text-white drop-shadow-[0_1px_4px_rgba(0,0,0,0.45)] md:text-base">
               Unified monitoring for canal flow, depth, and operational status
-              across monitored structures in Kerala with data-backed supervision.
+              across monitored structures in Kerala with data-backed
+              supervision.
             </p>
             {/* <div className="mt-6 flex flex-wrap items-center gap-3">
               <Link
@@ -176,8 +176,12 @@ export default function HomePage() {
                   <div className="mb-3 inline-flex text-[#0d3a6b]">
                     <Icon className="h-5 w-5" />
                   </div>
-                  <h3 className="text-lg font-semibold text-[#0d3a6b]">{item.title}</h3>
-                  <p className="mt-2 text-sm leading-relaxed text-[#3b5e82]">{item.text}</p>
+                  <h3 className="text-lg font-semibold text-[#0d3a6b]">
+                    {item.title}
+                  </h3>
+                  <p className="mt-2 text-sm leading-relaxed text-[#3b5e82]">
+                    {item.text}
+                  </p>
                 </article>
               );
             })}
@@ -195,9 +199,9 @@ export default function HomePage() {
               Water Structures and River Basin Visual Maps
             </h2>
             <p className="mt-4 text-sm leading-relaxed text-[#355a80] md:text-base">
-              Dedicated map page for basin-wise structure references. You can add
-              multiple JPG map sheets and switch them by basin using a simple
-              selector interface.
+              Dedicated map page for basin-wise structure references. You can
+              add multiple JPG map sheets and switch them by basin using a
+              simple selector interface.
             </p>
             <Link
               href="/map"
@@ -213,8 +217,8 @@ export default function HomePage() {
               style={{ backgroundImage: "url('/Kerala_WS.png')" }}
             />
             <p className="pt-3 text-xs text-[#44698d]">
-              Preview placeholder for the incoming water structures and rivers map
-              image set.
+              Preview placeholder for the incoming water structures and rivers
+              map image set.
             </p>
           </div>
         </div>

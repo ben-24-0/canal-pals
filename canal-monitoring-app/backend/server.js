@@ -9,17 +9,24 @@ const morgan = require("morgan");
 const app = express();
 const PORT = process.env.PORT || 3001;
 
+const allowedOrigins = (process.env.FRONTEND_URL || "")
+  .split(",")
+  .map((v) => v.trim())
+  .filter(Boolean);
+
+allowedOrigins.push("http://localhost:3000");
+
 // Security middleware
 app.use(helmet());
 
 // CORS configuration
 app.use(
-cors({
-  origin: [process.env.FRONTEND_URL, "http://localhost:3000"].filter(Boolean),
-  methods: ["GET", "POST", "PUT", "DELETE"],
-  allowedHeaders: ["Content-Type", "Authorization", "X-ESP32-ID"],
-  credentials: true, // add this if you're sending cookies/auth headers
-})
+  cors({
+    origin: [...new Set(allowedOrigins)],
+    methods: ["GET", "POST", "PUT", "DELETE"],
+    allowedHeaders: ["Content-Type", "Authorization", "X-ESP32-ID"],
+    credentials: true, // add this if you're sending cookies/auth headers
+  }),
 );
 
 // Rate limiting for ESP32 endpoints
@@ -44,7 +51,13 @@ const generalRateLimit = rateLimit({
 
 // Apply rate limiting
 app.use("/api/esp32", esp32RateLimit);
-app.use("/api", generalRateLimit);
+// Exempt /api/stream from rate limiting (SSE connections need to persist)
+app.use((req, res, next) => {
+  if (req.path.startsWith("/api/stream")) {
+    return next();
+  }
+  generalRateLimit(req, res, next);
+});
 
 // Body parsing middleware
 app.use(express.json({ limit: "10mb" }));
@@ -74,6 +87,7 @@ const dashboardRoutes = require("./routes/dashboard");
 const authRoutes = require("./routes/auth");
 const streamRoutes = require("./routes/stream");
 const dataBuffer = require("./lib/dataBuffer");
+const mqttIngest = require("./lib/mqttIngest");
 
 // Routes
 app.use("/api/esp32", esp32Routes);
@@ -142,6 +156,7 @@ app.use("*", (req, res) => {
 // Graceful shutdown — flush buffer before closing
 const gracefulShutdown = async (signal) => {
   console.log(`${signal} received. Flushing buffer & shutting down…`);
+  await mqttIngest.stop();
   await dataBuffer.stopAndFlush();
   mongoose.connection.close(() => {
     console.log("MongoDB connection closed");
@@ -154,7 +169,11 @@ process.on("SIGINT", () => gracefulShutdown("SIGINT"));
 // Start server
 const startServer = async () => {
   await connectDB();
+  await mqttIngest.start();
   dataBuffer.startFlushTimer(); // start the auto-flush to MongoDB
+
+  app.locals.mqttIngest = mqttIngest;
+
   app.listen(PORT, () => {
     console.log(`🚀 Server running on port ${PORT}`);
     console.log(`📊 Environment: ${process.env.NODE_ENV || "development"}`);

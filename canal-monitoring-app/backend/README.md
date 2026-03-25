@@ -1,394 +1,266 @@
-# Canal Monitoring API Backend
+# Canal Monitoring Backend (MQTT-First)
 
-A secure REST API for receiving and managing canal monitoring data from ESP32 devices.
+This backend now uses HiveMQ MQTT as the primary ingestion path for ESP32 data.
+HTTP data ingestion has been retired.
 
-## 🚀 Features
+## Overview
 
-- **Secure ESP32 Data Reception**: Secure endpoints with validation and rate limiting
-- **MongoDB Integration**: Scalable data storage with time-series optimization
-- **Real-time Monitoring**: Live canal status and metrics
-- **Dashboard APIs**: Comprehensive data aggregation for dashboards
-- **Geospatial Queries**: Location-based canal discovery
-- **Alert System**: Automated alerts for canal anomalies
-- **Production Ready**: Optimized for Render deployment
+The backend is built around this flow:
 
-## 📊 API Endpoints
+1. ESP32 publishes telemetry to HiveMQ topics.
+2. Backend subscribes to MQTT topics and parses JSON payloads.
+3. Readings are normalized and linked to a registered canal/device.
+4. For ultrasonic canals, depth/height and Manning velocity/discharge are calculated.
+5. Latest readings are pushed to in-memory live store and SSE streams.
+6. Buffered readings are periodically aggregated and flushed to MongoDB.
 
-### ESP32 Endpoints
+## MQTT Topics
 
-```http
-POST /api/esp32/data          # Receive canal data from ESP32
-GET  /api/esp32/status        # ESP32 health check
-POST /api/esp32/register      # Register new ESP32 device
-GET  /api/esp32/config/:id    # Get configuration for ESP32
+Broker:
+
+```text
+broker.hivemq.com:1883
 ```
 
-### Canal Management
+Subscribed topics:
 
-```http
-GET    /api/canals                    # List all canals
-GET    /api/canals/:id               # Get specific canal
-POST   /api/canals                   # Create new canal
-PUT    /api/canals/:id               # Update canal
-DELETE /api/canals/:id               # Deactivate canal
-GET    /api/canals/:id/readings      # Get canal readings
-GET    /api/canals/nearby/:lng/:lat  # Find nearby canals
+```text
+canal/+/data
+canal/+/settings
+canal/iims/poseidon/register
+canal/+/status
 ```
 
-### Dashboard APIs
+Device publish conventions:
 
-```http
-GET /api/dashboard/overview      # System overview
-GET /api/dashboard/metrics       # Current metrics
-GET /api/dashboard/timeseries/:id # Time series data
-GET /api/dashboard/alerts        # Active alerts
-GET /api/dashboard/stats         # System statistics
+- Data: canal/<device-id>/data
+- Settings: canal/<device-id>/settings
+- Register: canal/iims/poseidon/register
+
+## Core Logic
+
+### 1) Device and Canal Association
+
+- Incoming payload must contain canalId and deviceId.
+- Canal must exist and be active.
+- If canal has no esp32DeviceId yet, backend binds first seen device.
+- If canal is already bound to another device, reading is rejected.
+
+### 2) Ultrasonic Height and Manning Velocity
+
+For sensorType: ultrasonic:
+
+- If payload provides depth, it is used directly (meters).
+- Otherwise depth is derived from distance and depthOffset:
+
+```text
+depth_m = max(0, (depthOffset_cm - distance_cm) / 100)
+height_m = depth_m
 ```
 
-### System
+- Manning parameters are read from canal.manningsParams.
+- Backend computes:
+  - speed (V)
+  - flowRate/discharge (Q)
+  - area (A)
+  - hydraulic radius (R)
+  - wetted perimeter (P)
 
-```http
-GET /health                      # API health check
-GET /                           # API information
+For non-ultrasonic sensors, flowRate/speed/discharge values from payload are used.
+
+### 3) Status Normalization
+
+- If payload status is valid, backend uses it.
+- Otherwise backend derives status from flowRate and canal thresholds:
+  - below lowerLimit -> LOW_FLOW
+  - above upperLimit -> HIGH_FLOW
+  - zero/non-positive -> STOPPED
+  - otherwise -> FLOWING
+
+### 4) Live and Historical Data
+
+- Live path:
+  - reading is pushed to in-memory store
+  - reading is broadcast to SSE subscribers immediately
+- Historical path:
+  - buffered readings are minute-aggregated
+  - aggregated records are inserted into MongoDB on flush interval
+
+## Environment Variables
+
+Use .env.example as baseline.
+
+Required:
+
+```env
+MONGODB_URI=mongodb://localhost:27017/canal-monitoring
+PORT=3001
+FRONTEND_URL=http://localhost:3000
 ```
 
-## 🛠️ Setup Instructions
+MQTT:
 
-### Prerequisites
-
-- Node.js 18+
-- MongoDB 4.4+
-- npm or yarn
-
-### Local Development Setup
-
-1. **Clone and navigate to backend**
-
-   ```bash
-   cd backend
-   ```
-
-2. **Install dependencies**
-
-   ```bash
-   npm install
-   ```
-
-3. **Setup environment**
-
-   ```bash
-   cp .env.example .env
-   ```
-
-   Edit `.env` with your settings:
-
-   ```env
-   MONGODB_URI=mongodb://localhost:27017/canal-monitoring
-   FRONTEND_URL=http://localhost:3000
-   PORT=3001
-   ```
-
-4. **Start MongoDB** (if running locally)
-
-   ```bash
-   # Using MongoDB Community
-   mongod --dbpath /path/to/your/db
-
-   # Or using Docker
-   docker run --name mongodb -p 27017:27017 -d mongo:latest
-   ```
-
-5. **Initialize database with sample data**
-
-   ```bash
-   node scripts/init-database.js
-   ```
-
-6. **Start development server**
-   ```bash
-   npm run dev
-   ```
-
-### 📱 ESP32 Configuration
-
-Your ESP32 should send data in this format:
-
-**Endpoint**: `POST /api/esp32/data`
-
-**Headers**:
-
-```http
-Content-Type: application/json
-X-ESP32-ID: ESP32_UNIQUE_DEVICE_ID
+```env
+MQTT_BROKER_URL=mqtt://broker.hivemq.com:1883
+MQTT_CLIENT_ID=canal-backend-dev
+MQTT_USERNAME=
+MQTT_PASSWORD=
+MQTT_DATA_TOPIC=canal/+/data
+MQTT_SETTINGS_TOPIC=canal/+/settings
+MQTT_REGISTER_TOPIC=canal/iims/poseidon/register
+MQTT_STATUS_TOPIC=canal/+/status
 ```
 
-**Sample JSON Payload**:
+Buffer flush:
+
+```env
+ESP32_BUFFER_FLUSH_INTERVAL=600
+```
+
+This value is in seconds.
+
+## API Endpoints (Current)
+
+ESP32 and ingest health:
+
+```http
+GET  /api/esp32/status
+GET  /api/esp32/latest
+GET  /api/esp32/latest/:canalId
+GET  /api/esp32/buffer-stats
+POST /api/esp32/register
+POST /api/esp32/flush
+POST /api/esp32/data   # Deprecated, returns 410
+```
+
+SSE streaming:
+
+```http
+GET /api/stream/canals
+GET /api/stream/canal/:canalId
+```
+
+Dashboard and analytics:
+
+```http
+GET /api/dashboard/overview
+GET /api/dashboard/metrics
+GET /api/dashboard/timeseries/:canalId
+GET /api/dashboard/alerts
+GET /api/dashboard/stats
+```
+
+System:
+
+```http
+GET /health
+GET /
+```
+
+## Sample MQTT Payloads
+
+Register payload (to canal/iims/poseidon/register):
 
 ```json
 {
   "canalId": "peechi-canal",
-  "status": "FLOWING",
+  "deviceId": "fku",
+  "fwVersion": "1.0.0"
+}
+```
+
+Data payload (to canal/fku/data):
+
+```json
+{
+  "canalId": "peechi-canal",
+  "deviceId": "fku",
+  "distance": 74,
+  "batteryLevel": 92,
+  "radarStatus": 1,
+  "temperature": 30.2,
+  "timestamp": "2026-03-24T10:30:00Z"
+}
+```
+
+Alternative data payload for radar-like direct flow values:
+
+```json
+{
+  "canalId": "peechi-canal",
+  "deviceId": "fku",
   "flowRate": 14.2,
   "speed": 1.8,
-  "discharge": 520,
-  "waterLevel": 1.5,
-  "temperature": 25.3,
-  "pH": 7.2,
-  "batteryLevel": 85,
-  "signalStrength": -65,
-  "gpsCoordinates": {
-    "latitude": 10.535959,
-    "longitude": 76.280492
-  },
-  "timestamp": "2024-01-20T10:30:00Z"
+  "discharge": 14.2,
+  "status": "FLOWING"
 }
 ```
 
-**Required Fields**: `canalId`, `status`, `flowRate`, `speed`, `discharge`
+## Local Run
 
-**Status Values**: `FLOWING`, `STOPPED`, `LOW_FLOW`, `HIGH_FLOW`, `BLOCKED`, `ERROR`
-
-## 🚀 Deployment on Render
-
-### 1. Prepare for Deployment
-
-1. **Create a MongoDB Atlas cluster** (recommended) or use Render's MongoDB
-   - Go to [MongoDB Atlas](https://cloud.mongodb.com/)
-   - Create free cluster
-   - Get connection string
-
-2. **Push to GitHub**
-   ```bash
-   git add .
-   git commit -m "Canal monitoring API backend"
-   git push origin main
-   ```
-
-### 2. Deploy on Render
-
-1. **Create Web Service**
-   - Go to [Render Dashboard](https://dashboard.render.com)
-   - Click "New" → "Web Service"
-   - Connect your GitHub repository
-   - Choose the `backend` folder as root directory
-
-2. **Configure Build Settings**
-
-   ```yaml
-   Build Command: npm install
-   Start Command: npm start
-   ```
-
-3. **Set Environment Variables**
-
-   ```env
-   NODE_ENV=production
-   MONGODB_URI=mongodb+srv://username:password@cluster.mongodb.net/canal-monitoring
-   FRONTEND_URL=https://your-frontend-domain.com
-   PORT=10000
-   ```
-
-4. **Deploy**: Click "Create Web Service"
-
-### 3. Initialize Production Database
-
-After deployment, initialize your database:
+1. Install dependencies:
 
 ```bash
-# Clone and setup locally, then run with production MONGODB_URI
-NODE_ENV=production MONGODB_URI=your-production-uri node scripts/init-database.js
+cd backend
+npm install
 ```
 
-### 4. Test Your Deployment
+2. Configure environment:
 
 ```bash
-# Health check
-curl https://your-api-url.onrender.com/health
-
-# Get canals
-curl https://your-api-url.onrender.com/api/canals
-
-# Test ESP32 endpoint
-curl -X POST https://your-api-url.onrender.com/api/esp32/data \
-  -H "Content-Type: application/json" \
-  -H "X-ESP32-ID: ESP32_TEST_001" \
-  -d '{
-    "canalId": "peechi-canal",
-    "status": "FLOWING",
-    "flowRate": 14.2,
-    "speed": 1.8,
-    "discharge": 520
-  }'
+cp .env.example .env
 ```
 
-## 🔧 ESP32 Arduino Code Template
+3. Start MongoDB and initialize canals if needed:
 
-```cpp
-#include <WiFi.h>
-#include <HTTPClient.h>
-#include <ArduinoJson.h>
-
-const char* ssid = "YOUR_WIFI_SSID";
-const char* password = "YOUR_WIFI_PASSWORD";
-const char* apiUrl = "https://your-api-url.onrender.com/api/esp32/data";
-const char* deviceId = "ESP32_PEECHI_CANAL_001";
-
-void setup() {
-  Serial.begin(115200);
-  WiFi.begin(ssid, password);
-
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(1000);
-    Serial.println("Connecting to WiFi...");
-  }
-  Serial.println("Connected to WiFi");
-}
-
-void sendCanalData(float flowRate, float speed, float discharge, String status) {
-  if (WiFi.status() == WL_CONNECTED) {
-    HTTPClient http;
-    http.begin(apiUrl);
-    http.addHeader("Content-Type", "application/json");
-    http.addHeader("X-ESP32-ID", deviceId);
-
-    StaticJsonDocument<300> doc;
-    doc["canalId"] = "peechi-canal";
-    doc["status"] = status;
-    doc["flowRate"] = flowRate;
-    doc["speed"] = speed;
-    doc["discharge"] = discharge;
-    doc["batteryLevel"] = getBatteryLevel();
-    doc["signalStrength"] = WiFi.RSSI();
-    doc["timestamp"] = getISOTimestamp();
-
-    String jsonString;
-    serializeJson(doc, jsonString);
-
-    int httpResponseCode = http.POST(jsonString);
-
-    if (httpResponseCode > 0) {
-      String response = http.getString();
-      Serial.println("Data sent successfully");
-      Serial.println(response);
-    } else {
-      Serial.println("Error sending data");
-      Serial.println(httpResponseCode);
-    }
-
-    http.end();
-  }
-}
-
-void loop() {
-  // Read sensor data
-  float flowRate = readFlowRate();
-  float speed = readSpeed();
-  float discharge = calculateDischarge(flowRate, speed);
-  String status = determineStatus(flowRate);
-
-  // Send data every 5 minutes
-  sendCanalData(flowRate, speed, discharge, status);
-  delay(300000); // 5 minutes
-}
+```bash
+node scripts/init-database.js
 ```
 
-## 🔒 Security Features
+4. Run backend:
 
-- **Rate Limiting**: Prevents spam and DDoS attacks
-- **CORS Protection**: Restricts cross-origin requests
-- **Input Validation**: All inputs are validated and sanitized
-- **Device Authentication**: ESP32 devices require registration
-- **Error Handling**: Secure error messages in production
-- **Helmet.js**: Security headers for production
-
-## 📈 Data Models
-
-### Canal Schema
-
-```javascript
-{
-  canalId: String (unique),
-  name: String,
-  type: String, // irrigation, drainage, water-supply
-  location: { type: Point, coordinates: [lng, lat] },
-  esp32DeviceId: String (unique),
-  isActive: Boolean,
-  description: String,
-  capacity: Number
-}
+```bash
+npm run dev
 ```
 
-### Canal Reading Schema
+5. Confirm MQTT status:
 
-```javascript
-{
-  canalId: String,
-  esp32DeviceId: String,
-  status: String, // FLOWING, STOPPED, etc.
-  flowRate: Number,
-  speed: Number,
-  discharge: Number,
-  waterLevel: Number,
-  temperature: Number,
-  pH: Number,
-  batteryLevel: Number,
-  signalStrength: Number,
-  gpsCoordinates: { latitude: Number, longitude: Number },
-  timestamp: Date,
-  receivedAt: Date
-}
+```bash
+curl http://localhost:3001/api/esp32/status
 ```
 
-## 🐛 Troubleshooting
+## Frontend Behavior Notes
 
-### Common Issues
+The frontend now receives and highlights:
 
-1. **MongoDB Connection Failed**
+- Water height (height/depth/waterLevel)
+- Manning velocity (speed)
 
-   ```bash
-   # Check connection string
-   # Ensure network access in MongoDB Atlas
-   # Verify credentials
-   ```
+Flow and discharge remain available as secondary metrics.
 
-2. **ESP32 Can't Send Data**
+## Troubleshooting
 
-   ```bash
-   # Check device ID registration
-   # Verify JSON format
-   # Check network connectivity
-   # Verify API URL
-   ```
+1. No live readings in UI:
 
-3. **Rate Limiting Issues**
+- Check /api/esp32/status for MQTT connection and subscription stats.
+- Verify ESP32 topic is canal/<device-id>/data.
+- Verify payload includes canalId and deviceId.
 
-   ```bash
-   # Increase rate limits in environment variables
-   # Check if ESP32 is sending too frequently
-   ```
+2. Readings rejected:
 
-4. **CORS Errors**
-   ```bash
-   # Update FRONTEND_URL environment variable
-   # Check origin in browser network tab
-   ```
+- Confirm canal exists and is active.
+- Confirm canal esp32DeviceId matches sender deviceId.
 
-## 📞 Support
+3. Height is missing for ultrasonic canal:
 
-For issues or questions:
+- Ensure sensorType is ultrasonic on canal config.
+- Provide either depth in payload, or distance with depthOffset configured.
 
-1. Check the logs: `docker logs container-id` or Render logs
-2. Validate your JSON payload with online JSON validators
-3. Check network connectivity between ESP32 and API
-4. Verify environment variables are set correctly
+4. Velocity is zero for ultrasonic canal:
 
-## 🔄 Updates & Maintenance
+- Check canal.manningsParams shape, n, and S values.
 
-- **Database Cleanup**: Old readings are automatically deleted after 30 days
-- **Monitoring**: Use `/health` endpoint for uptime monitoring
-- **Scaling**: Render auto-scales based on traffic
-- **Backup**: Regular MongoDB backups recommended
+## Notes
 
----
-
-🎯 **Your API is now ready to receive real data from ESP32 devices!**
+- Old HTTP ingestion at /api/esp32/data is intentionally disabled.
+- This backend is designed for MQTT-first ESP32 telemetry.

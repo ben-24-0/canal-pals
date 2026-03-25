@@ -1,0 +1,11 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Explore water management dashboard refactor",
+			"type": "shell",
+			"command": "echo 'Planning frontend refactor for live metrics display'",
+			"group": "none"
+		}
+	]
+}

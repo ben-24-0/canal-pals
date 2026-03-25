@@ -21,6 +21,7 @@ interface Props {
 interface DepthPoint {
   label: string;
   depth: number;
+  timestamp?: number;
 }
 
 export default function DepthReadingsChart({ canalId }: Props) {
@@ -39,16 +40,28 @@ export default function DepthReadingsChart({ canalId }: Props) {
           (d: {
             _id?: string;
             timestamp?: string;
+            avgHeight?: number;
             avgDepth?: number;
+            avgWaterLevel?: number;
             depth?: number;
             waterLevel?: number;
-          }) => ({
-            label: new Date(d._id ?? d.timestamp ?? "").toLocaleTimeString([], {
-              hour: "2-digit",
-              minute: "2-digit",
-            }),
-            depth: d.avgDepth ?? d.depth ?? d.waterLevel ?? 0,
-          }),
+          }) => {
+            const date = new Date(d._id ?? d.timestamp ?? "");
+            return {
+              label: date.toLocaleTimeString([], {
+                hour: "2-digit",
+                minute: "2-digit",
+              }),
+              depth:
+                d.avgHeight ??
+                d.avgDepth ??
+                d.avgWaterLevel ??
+                d.depth ??
+                d.waterLevel ??
+                0,
+              timestamp: date.getTime(),
+            };
+          },
         );
         setData(points);
       } catch {
@@ -62,6 +75,7 @@ export default function DepthReadingsChart({ canalId }: Props) {
               minute: "2-digit",
             }),
             depth: +(1.0 + Math.random() * 0.8).toFixed(3),
+            timestamp: t.getTime(),
           };
         });
         setData(pts);
@@ -111,6 +125,25 @@ export default function DepthReadingsChart({ canalId }: Props) {
             border: "1px solid hsl(var(--border))",
             borderRadius: 8,
             fontSize: 12,
+          }}
+          formatter={(value, name, props) => {
+            if (name === "Depth") {
+              return [
+                `${(value as number).toFixed(3)} m`,
+                "Water Depth",
+              ];
+            }
+            return [value, name];
+          }}
+          labelFormatter={(label, payload) => {
+            if (payload && payload.length > 0) {
+              const ts = payload[0].payload.timestamp;
+              if (ts) {
+                const d = new Date(ts);
+                return d.toLocaleString();
+              }
+            }
+            return label;
           }}
         />
         <Area

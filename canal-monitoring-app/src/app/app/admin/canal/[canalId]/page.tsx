@@ -12,6 +12,9 @@ import {
   Loader2,
   Trash2,
   AlertTriangle,
+  ChevronDown,
+  Clock,
+  Droplets,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -27,6 +30,7 @@ import WeeklyBarChart from "@/components/dashboard/WeeklyBarChart";
 import PredictionChart from "@/components/dashboard/PredictionChart";
 import DepthReadingsChart from "@/components/dashboard/DepthReadingsChart";
 import { useCanalSSE } from "@/hooks/useCanalSSE";
+import { calculateFlowRate } from "@/lib/mannings";
 import dynamic from "next/dynamic";
 
 const MiniMap = dynamic(() => import("@/components/map/MiniMap"), {
@@ -100,6 +104,9 @@ export default function AdminCanalDashboard() {
   const [deleteConfirmText, setDeleteConfirmText] = useState("");
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+
+  // ─── UI State ────────────────────────────────────────────────
+  const [showMoreInfo, setShowMoreInfo] = useState(false);
 
   const handleDeleteCanal = async () => {
     setDeleting(true);
@@ -234,9 +241,26 @@ export default function AdminCanalDashboard() {
 
   const status = reading?.status ?? "STOPPED";
   const statusCfg = STATUS_CONFIG[status];
+  
+  // ─── Time-based offline detection ─────────────────────────
+  const lastReadingTime = reading?.timestamp ? new Date(reading.timestamp).getTime() : null;
+  const now = Date.now();
+  const timeSinceLastReading = lastReadingTime ? now - lastReadingTime : null;
+  const OFFLINE_THRESHOLD = 2 * 60 * 60 * 1000; // 2 hours in milliseconds
+  const isOffline = !lastReadingTime || timeSinceLastReading > OFFLINE_THRESHOLD;
+  
+  const getTimeSinceReading = () => {
+    if (!timeSinceLastReading) return "—";
+    const minutes = Math.floor(timeSinceLastReading / 60000);
+    const hours = Math.floor(minutes / 60);
+    if (hours > 0) return `${hours}h ${minutes % 60}m ago`;
+    return `${minutes}m ago`;
+  };
+
   const lastUpdated = reading?.timestamp
     ? formatDistanceToNow(new Date(reading.timestamp), { addSuffix: true })
     : "Never";
+  
   const [lon, lat] = canal.location.coordinates;
   const mp = canal.manningsParams;
 
@@ -268,106 +292,137 @@ export default function AdminCanalDashboard() {
       {/* Top info row: metrics + map */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <Card>
-          <CardHeader className="pb-2">
+          <CardHeader className="pb-3">
             <div className="flex items-center justify-between">
               <CardTitle className="text-base flex items-center gap-1.5">
                 <Gauge className="w-4 h-4" /> Live Metrics
               </CardTitle>
-              <Badge variant={statusCfg.variant}>{statusCfg.label}</Badge>
+              <Badge variant={isOffline ? "outline" : "default"}>
+                {isOffline ? "Offline" : "Connected"}
+              </Badge>
             </div>
           </CardHeader>
-          <CardContent>
-            <div className="divide-y divide-border">
-              <Row
-                label="Flow Rate"
-                value={
-                  reading?.flowRate != null
-                    ? `${reading.flowRate.toFixed(4)} m³/s`
-                    : "—"
-                }
-              />
-              <Row
-                label="Depth"
-                value={
-                  reading?.depth != null
-                    ? `${reading.depth.toFixed(3)} m`
-                    : reading?.waterLevel != null
-                      ? `${Number(reading.waterLevel).toFixed(3)} m`
-                      : "—"
-                }
-              />
-              <Row
-                label="Velocity"
-                value={
-                  reading?.speed != null
-                    ? `${reading.speed.toFixed(4)} m/s`
-                    : "—"
-                }
-              />
-              <Row
-                label="Flow Area"
-                value={
-                  reading?.calculatedArea != null
-                    ? `${reading.calculatedArea.toFixed(4)} m²`
-                    : "—"
-                }
-              />
-              <Row
-                label="Hydraulic Radius"
-                value={
-                  reading?.calculatedHydraulicRadius != null
-                    ? `${reading.calculatedHydraulicRadius.toFixed(4)} m`
-                    : "—"
-                }
-              />
-              <Row
-                label="Wetted Perimeter"
-                value={
-                  reading?.wettedPerimeter != null
-                    ? `${reading.wettedPerimeter.toFixed(4)} m`
-                    : "—"
-                }
-              />
-              <Row
-                label="Temperature"
-                value={
-                  reading?.temperature != null
-                    ? `${reading.temperature.toFixed(1)} °C`
-                    : "—"
-                }
-              />
-              <Row
-                label="pH"
-                value={reading?.pH != null ? reading.pH.toFixed(1) : "—"}
-              />
-              <Row
-                label="Turbidity"
-                value={
-                  reading?.turbidity != null
-                    ? `${reading.turbidity.toFixed(1)} NTU`
-                    : "—"
-                }
-              />
-              <Row
-                label="Battery"
-                value={
-                  reading?.batteryLevel != null
-                    ? `${reading.batteryLevel.toFixed(0)}%`
-                    : "—"
-                }
-              />
-              <Row
-                label="Signal"
-                value={
-                  reading?.signalStrength != null
-                    ? `${reading.signalStrength} dBm`
-                    : "—"
-                }
-              />
+          <CardContent className="space-y-4">
+            {/* Primary: Water Depth/Height - EMPHASIZED */}
+            <div className="bg-linear-to-br from-blue-50 to-blue-50/50 dark:from-blue-950/20 dark:to-blue-950/10 rounded-lg p-4 border border-blue-200 dark:border-blue-800">
+              <div className="flex items-baseline justify-between">
+                <div className="flex items-baseline gap-2">
+                  <span className="text-sm text-muted-foreground">Water Height</span>
+                </div>
+              </div>
+              <div className="flex items-baseline gap-1 mt-2">
+                <span className="text-4xl font-bold text-blue-600 dark:text-blue-400">
+                  {reading?.depth != null ? reading.depth.toFixed(2) : "—"}
+                </span>
+                <span className="text-lg text-muted-foreground">m</span>
+              </div>
+              <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
+                <Clock className="w-3 h-3" /> Last reading: {getTimeSinceReading()}
+              </p>
             </div>
-            <Separator className="my-3" />
+
+            {/* Secondary metrics: Velocity & Flow Rate */}
+            <div className="grid grid-cols-2 gap-3">
+              <div className="rounded-lg bg-muted/30 p-3 border">
+                <p className="text-xs text-muted-foreground mb-1">Velocity</p>
+                <p className="text-xl font-semibold">
+                  {reading?.speed != null ? reading.speed.toFixed(3) : "—"}
+                </p>
+                <p className="text-xs text-muted-foreground">m/s</p>
+              </div>
+              <div className="rounded-lg bg-muted/30 p-3 border">
+                <p className="text-xs text-muted-foreground mb-1">Flow Rate</p>
+                <p className="text-xl font-semibold">
+                  {reading?.flowRate != null ? reading.flowRate.toFixed(2) : "—"}
+                </p>
+                <p className="text-xs text-muted-foreground">m³/s</p>
+              </div>
+            </div>
+
+            {/* More Info Section - Collapsible */}
+            <div className="border-t pt-3">
+              <button
+                onClick={() => setShowMoreInfo(!showMoreInfo)}
+                className="flex items-center justify-between w-full text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
+              >
+                <span className="flex items-center gap-2">
+                  <Info className="w-4 h-4" /> More Info
+                </span>
+                <ChevronDown
+                  className={`w-4 h-4 transition-transform ${
+                    showMoreInfo ? "rotate-180" : ""
+                  }`}
+                />
+              </button>
+
+              {showMoreInfo && (
+                <div className="mt-3 space-y-2 pt-3 border-t divide-y">
+                  <Row
+                    label="Flow Area"
+                    value={
+                      reading?.calculatedArea != null
+                        ? `${reading.calculatedArea.toFixed(4)} m²`
+                        : "—"
+                    }
+                  />
+                  <Row
+                    label="Hydraulic Radius"
+                    value={
+                      reading?.calculatedHydraulicRadius != null
+                        ? `${reading.calculatedHydraulicRadius.toFixed(4)} m`
+                        : "—"
+                    }
+                  />
+                  <Row
+                    label="Wetted Perimeter"
+                    value={
+                      reading?.wettedPerimeter != null
+                        ? `${reading.wettedPerimeter.toFixed(4)} m`
+                        : "—"
+                    }
+                  />
+                  <Row
+                    label="Temperature"
+                    value={
+                      reading?.temperature != null
+                        ? `${reading.temperature.toFixed(1)} °C`
+                        : "—"
+                    }
+                  />
+                  <Row
+                    label="pH"
+                    value={reading?.pH != null ? reading.pH.toFixed(1) : "—"}
+                  />
+                  <Row
+                    label="Turbidity"
+                    value={
+                      reading?.turbidity != null
+                        ? `${reading.turbidity.toFixed(1)} NTU`
+                        : "—"
+                    }
+                  />
+                  <Row
+                    label="Battery"
+                    value={
+                      reading?.batteryLevel != null
+                        ? `${reading.batteryLevel.toFixed(0)}%`
+                        : "—"
+                    }
+                  />
+                  <Row
+                    label="Signal"
+                    value={
+                      reading?.signalStrength != null
+                        ? `${reading.signalStrength} dBm`
+                        : "—"
+                    }
+                  />
+                </div>
+              )}
+            </div>
+
+            <Separator className="my-2" />
             <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
-              <Row label="Last updated" value={lastUpdated} />
               <Row
                 label="Sensor"
                 value={<span className="capitalize">{canal.sensorType}</span>}
@@ -375,7 +430,7 @@ export default function AdminCanalDashboard() {
               <Row
                 label="Lon/Lat"
                 value={
-                  <span className="font-mono">
+                  <span className="font-mono text-xs">
                     {lon.toFixed(4)}, {lat.toFixed(4)}
                   </span>
                 }
@@ -552,97 +607,100 @@ export default function AdminCanalDashboard() {
             </div>
           </div>
 
-          {/* Sensor type + active */}
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label>Sensor Type</Label>
-              <div className="flex gap-2">
-                {(["radar", "ultrasonic"] as const).map((s) => (
-                  <button
-                    key={s}
-                    type="button"
-                    onClick={() =>
-                      setEditForm((p) => ({ ...p, shape: p.shape }))
-                    }
-                    disabled
-                    className={`px-3 py-1.5 text-xs rounded-lg border transition-colors capitalize ${
-                      canal.sensorType === s
-                        ? "bg-primary/10 text-primary border-primary/30"
-                        : "bg-muted text-muted-foreground"
-                    }`}
-                  >
-                    {s}
-                  </button>
-                ))}
+          {/* Edit form - only show when in edit mode */}
+          {isEditMode && (
+            <>
+              {/* Sensor type + active */}
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Sensor Type</Label>
+                  <div className="flex gap-2">
+                    {(["radar", "ultrasonic"] as const).map((s) => (
+                      <button
+                        key={s}
+                        type="button"
+                        onClick={() =>
+                          setEditForm((p) => ({ ...p, shape: p.shape }))
+                        }
+                        disabled
+                        className={`px-3 py-1.5 text-xs rounded-lg border transition-colors capitalize ${
+                          canal.sensorType === s
+                            ? "bg-primary/10 text-primary border-primary/30"
+                            : "bg-muted text-muted-foreground"
+                        }`}
+                      >
+                        {s}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Change sensor type via re-registration.
+                  </p>
+                </div>
+                <div className="space-y-2">
+                  <Label>Active</Label>
+                  <div className="flex gap-2">
+                    {([true, false] as const).map((v) => (
+                      <button
+                        key={String(v)}
+                        type="button"
+                        onClick={() => setEditForm((p) => ({ ...p, isActive: v }))}
+                        disabled={!isEditMode}
+                        className={`px-3 py-1.5 text-xs rounded-lg border transition-colors ${
+                          editForm.isActive === v
+                            ? "bg-primary text-primary-foreground border-primary"
+                            : "hover:bg-muted"
+                        }`}
+                      >
+                        {v ? "Active" : "Inactive"}
+                      </button>
+                    ))}
+                  </div>
+                </div>
               </div>
-              <p className="text-xs text-muted-foreground">
-                Change sensor type via re-registration.
-              </p>
-            </div>
-            <div className="space-y-2">
-              <Label>Active</Label>
-              <div className="flex gap-2">
-                {([true, false] as const).map((v) => (
-                  <button
-                    key={String(v)}
-                    type="button"
-                    onClick={() => setEditForm((p) => ({ ...p, isActive: v }))}
+
+              {/* Sensor height / depthOffset */}
+              {canal.sensorType === "ultrasonic" && (
+                <div className="space-y-2 p-3 rounded-lg bg-muted/50 border">
+                  <Label htmlFor="depthOffset" className="font-semibold">
+                    Sensor Height above Canal Floor (cm)
+                  </Label>
+                  <Input
+                    id="depthOffset"
+                    type="number"
+                    step="1"
+                    min="0"
+                    max="1000"
+                    value={editForm.depthOffset}
                     disabled={!isEditMode}
-                    className={`px-3 py-1.5 text-xs rounded-lg border transition-colors ${
-                      editForm.isActive === v
-                        ? "bg-primary text-primary-foreground border-primary"
-                        : "hover:bg-muted"
-                    }`}
-                  >
-                    {v ? "Active" : "Inactive"}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
+                    onChange={(e) =>
+                      setEditForm((p) => ({ ...p, depthOffset: e.target.value }))
+                    }
+                    className="max-w-xs"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Physical distance (cm) from the ultrasonic sensor down to the
+                    canal floor when empty.{" "}
+                    <strong>Water depth = this value − measured distance.</strong>
+                  </p>
+                </div>
+              )}
 
-          {/* Sensor height / depthOffset */}
-          {canal.sensorType === "ultrasonic" && (
-            <div className="space-y-2 p-3 rounded-lg bg-muted/50 border">
-              <Label htmlFor="depthOffset" className="font-semibold">
-                Sensor Height above Canal Floor (cm)
-              </Label>
-              <Input
-                id="depthOffset"
-                type="number"
-                step="1"
-                min="0"
-                max="1000"
-                value={editForm.depthOffset}
-                disabled={!isEditMode}
-                onChange={(e) =>
-                  setEditForm((p) => ({ ...p, depthOffset: e.target.value }))
-                }
-                className="max-w-xs"
-              />
-              <p className="text-xs text-muted-foreground">
-                Physical distance (cm) from the ultrasonic sensor down to the
-                canal floor when empty.{" "}
-                <strong>Water depth = this value − measured distance.</strong>
-              </p>
-            </div>
-          )}
-
-          {/* Flow limits */}
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label htmlFor="upperLimit">High Flow Threshold (m³/s)</Label>
-              <Input
-                id="upperLimit"
-                type="number"
-                step="any"
-                value={editForm.upperLimit}
-                disabled={!isEditMode}
-                onChange={(e) =>
-                  setEditForm((p) => ({ ...p, upperLimit: e.target.value }))
-                }
-              />
-            </div>
+              {/* Flow limits */}
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="upperLimit">High Flow Threshold (m³/s)</Label>
+                  <Input
+                    id="upperLimit"
+                    type="number"
+                    step="any"
+                    value={editForm.upperLimit}
+                    disabled={!isEditMode}
+                    onChange={(e) =>
+                      setEditForm((p) => ({ ...p, upperLimit: e.target.value }))
+                    }
+                  />
+                </div>
             <div className="space-y-2">
               <Label htmlFor="lowerLimit">Low Flow Threshold (m³/s)</Label>
               <Input
@@ -786,6 +844,8 @@ export default function AdminCanalDashboard() {
               </div>
             </div>
           </div>
+            </>
+          )}
 
           {saveError && (
             <div className="p-3 rounded-lg bg-destructive/10 text-destructive text-sm">

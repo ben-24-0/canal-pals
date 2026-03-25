@@ -1,7 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { BookmarkCheck, BookmarkPlus, MapPin, Radio, Zap } from "lucide-react";
+import {
+  Activity,
+  BookmarkCheck,
+  BookmarkPlus,
+  Droplets,
+  MapPin,
+  Zap,
+} from "lucide-react";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import type { CanalInfo, CanalReading } from "@/types/canal";
@@ -38,6 +45,12 @@ export default function CanalModuleCard({
 }: Props) {
   const status = reading?.status ?? "STOPPED";
   const cfg = STATUS_CONFIG[status] ?? STATUS_CONFIG.STOPPED;
+  const ts = reading?.timestamp
+    ? new Date(reading.timestamp).getTime()
+    : reading?.receivedAt
+      ? new Date(reading.receivedAt).getTime()
+      : 0;
+  const deviceOnline = Number.isFinite(ts) && ts > 0 ? Date.now() - ts <= 180000 : false;
   const href = isAdmin
     ? `/app/admin/canal/${canal.canalId}`
     : `/app/canal/${canal.canalId}`;
@@ -68,6 +81,9 @@ export default function CanalModuleCard({
             <h3 className="font-semibold text-sm truncate flex-1">
               {canal.name}
             </h3>
+            <Badge variant={deviceOnline ? "default" : "outline"} className="shrink-0 text-[10px]">
+              {deviceOnline ? "Online" : "Offline"}
+            </Badge>
             <Badge variant={cfg.variant} className="shrink-0 mr-6 text-[10px]">
               {cfg.label}
             </Badge>
@@ -78,20 +94,48 @@ export default function CanalModuleCard({
         </CardHeader>
 
         <CardContent className="pt-0">
+          {(reading?.height != null ||
+            reading?.depth != null ||
+            reading?.waterLevel != null) && (
+            <div className="mb-3 rounded-md border border-blue-200/60 bg-blue-50/70 px-2.5 py-2">
+              <p className="text-[10px] uppercase tracking-wide text-blue-700 font-semibold">
+                Live Height
+              </p>
+              <p className="text-lg font-bold text-blue-900 leading-tight">
+                {(
+                  reading.height ??
+                  reading.depth ??
+                  Number(reading.waterLevel ?? 0)
+                ).toFixed(2)}{" "}
+                m
+              </p>
+            </div>
+          )}
+
           <div className="grid grid-cols-2 gap-2 text-xs">
+            {reading?.speed != null && (
+              <div className="flex items-center gap-1 text-muted-foreground">
+                <Activity className="w-3 h-3" />
+                <span>{reading.speed.toFixed(2)} m/s</span>
+              </div>
+            )}
             {reading?.flowRate != null && (
               <div className="flex items-center gap-1 text-muted-foreground">
                 <Zap className="w-3 h-3" />
                 <span>{reading.flowRate.toFixed(2)} m³/s</span>
               </div>
             )}
-            {(reading?.depth != null || reading?.waterLevel != null) && (
+            {(reading?.height != null ||
+              reading?.depth != null ||
+              reading?.waterLevel != null) && (
               <div className="flex items-center gap-1 text-muted-foreground">
-                <Radio className="w-3 h-3" />
+                <Droplets className="w-3 h-3" />
                 <span>
-                  {(reading.depth ?? Number(reading.waterLevel ?? 0)).toFixed(
-                    2,
-                  )}{" "}
+                  {(
+                    reading.height ??
+                    reading.depth ??
+                    Number(reading.waterLevel ?? 0)
+                  ).toFixed(2)}{" "}
                   m
                 </span>
               </div>

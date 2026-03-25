@@ -53,17 +53,23 @@ function send(res, eventName, payload) {
 // ────────────────────────────────────────────────────────────────────
 router.get("/canal/:canalId", (req, res) => {
   const canalId = req.params.canalId.toLowerCase().trim();
+  console.log(`[STREAM] Client connected to canal: ${canalId}`);
+  
   const heartbeat = initSSE(req, res);
 
   // Send the current snapshot immediately so the UI shows data right away
   const snapshot = dataBuffer.getLatest(canalId);
   if (snapshot) {
+    console.log(`[STREAM] Sending snapshot for ${canalId}:`, { depth: snapshot.depth, speed: snapshot.speed });
     send(res, "reading", { canalId, reading: snapshot });
+  } else {
+    console.log(`[STREAM] No snapshot available for ${canalId} yet`);
   }
 
   // Subscribe to future pushes
   const handler = ({ canalId: id, reading }) => {
     if (id === canalId) {
+      console.log(`[STREAM] Broadcasting to ${canalId}:`, { depth: reading.depth, speed: reading.speed });
       send(res, "reading", { canalId: id, reading });
     }
   };
@@ -71,6 +77,7 @@ router.get("/canal/:canalId", (req, res) => {
   sseEmitter.on("reading", handler);
 
   req.on("close", () => {
+    console.log(`[STREAM] Client disconnected from canal: ${canalId}`);
     sseEmitter.off("reading", handler);
     clearInterval(heartbeat);
   });

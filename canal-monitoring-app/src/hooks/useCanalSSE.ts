@@ -16,7 +16,9 @@ import { useEffect, useState } from "react";
 import type { CanalReading } from "@/types/canal";
 
 const BACKEND_URL =
-  process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://localhost:3001";
+  process.env.NEXT_PUBLIC_BACKEND_URL ??
+  process.env.NEXT_PUBLIC_API_URL ??
+  "http://localhost:3001";
 
 export function useCanalSSE(canalId: string): {
   reading: CanalReading | null;
@@ -29,29 +31,37 @@ export function useCanalSSE(canalId: string): {
     if (typeof window === "undefined" || !canalId) return;
 
     const url = `${BACKEND_URL}/api/stream/canal/${encodeURIComponent(canalId)}`;
+    console.log(`[SSE] Connecting to: ${url}`);
+    
     const es = new EventSource(url);
 
     es.addEventListener("reading", (e: MessageEvent) => {
       try {
+        console.log(`[SSE] Received event:`, e.data);
         const { reading: r } = JSON.parse(e.data) as {
           canalId: string;
           reading: CanalReading;
         };
+        console.log(`[SSE] Parsed reading:`, r);
         setReading(r);
         setConnected(true);
-      } catch {
-        /* ignore malformed */
+      } catch (err) {
+        console.error(`[SSE] Parse error:`, err, e.data);
       }
     });
 
-    es.onopen = () => setConnected(true);
+    es.onopen = () => {
+      console.log(`[SSE] Connected to stream for canal: ${canalId}`);
+      setConnected(true);
+    };
 
-    es.onerror = () => {
-      // EventSource will auto-reconnect; just reflect disconnected state
+    es.onerror = (err) => {
+      console.error(`[SSE] Connection error:`, err);
       setConnected(false);
     };
 
     return () => {
+      console.log(`[SSE] Closing connection for canal: ${canalId}`);
       es.close();
       setConnected(false);
     };

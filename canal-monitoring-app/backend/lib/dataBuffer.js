@@ -40,7 +40,9 @@ function aggregateReadingsByMinute(readings) {
   const grouped = new Map();
 
   for (const reading of readings) {
-    const bucketTime = minuteBucketStart(reading.timestamp || reading.receivedAt);
+    const bucketTime = minuteBucketStart(
+      reading.timestamp || reading.receivedAt,
+    );
     const key = `${reading.canalId}|${bucketTime.toISOString()}`;
 
     if (!grouped.has(key)) {
@@ -59,8 +61,12 @@ function aggregateReadingsByMinute(readings) {
   for (const [, group] of grouped) {
     const samples = group.samples;
     const latest = samples.reduce((acc, s) => {
-      const sTime = new Date(s.timestamp || s.receivedAt || Date.now()).getTime();
-      const accTime = new Date(acc.timestamp || acc.receivedAt || Date.now()).getTime();
+      const sTime = new Date(
+        s.timestamp || s.receivedAt || Date.now(),
+      ).getTime();
+      const accTime = new Date(
+        acc.timestamp || acc.receivedAt || Date.now(),
+      ).getTime();
       return sTime >= accTime ? s : acc;
     }, samples[0]);
 
@@ -69,6 +75,7 @@ function aggregateReadingsByMinute(readings) {
     const avgDischarge = averageDefined(samples.map((s) => s.discharge));
     const avgWaterLevel = averageDefined(samples.map((s) => s.waterLevel));
     const avgDepth = averageDefined(samples.map((s) => s.depth));
+    const avgHeight = averageDefined(samples.map((s) => s.height));
     const avgTemperature = averageDefined(samples.map((s) => s.temperature));
     const avgPH = averageDefined(samples.map((s) => s.pH));
     const avgTurbidity = averageDefined(samples.map((s) => s.turbidity));
@@ -97,7 +104,9 @@ function aggregateReadingsByMinute(readings) {
       discharge: avgDischarge != null ? +avgDischarge.toFixed(6) : undefined,
       waterLevel: avgWaterLevel != null ? +avgWaterLevel.toFixed(6) : undefined,
       depth: avgDepth != null ? +avgDepth.toFixed(6) : undefined,
-      temperature: avgTemperature != null ? +avgTemperature.toFixed(3) : undefined,
+      height: avgHeight != null ? +avgHeight.toFixed(6) : undefined,
+      temperature:
+        avgTemperature != null ? +avgTemperature.toFixed(3) : undefined,
       pH: avgPH != null ? +avgPH.toFixed(3) : undefined,
       turbidity: avgTurbidity != null ? +avgTurbidity.toFixed(3) : undefined,
       batteryLevel: avgBattery != null ? +avgBattery.toFixed(3) : undefined,
@@ -105,8 +114,11 @@ function aggregateReadingsByMinute(readings) {
       calculatedArea: avgArea != null ? +avgArea.toFixed(6) : undefined,
       calculatedHydraulicRadius:
         avgHydraulicRadius != null ? +avgHydraulicRadius.toFixed(6) : undefined,
-      wettedPerimeter: avgPerimeter != null ? +avgPerimeter.toFixed(6) : undefined,
-      rawDistance: avgRawDistance != null ? +avgRawDistance.toFixed(6) : undefined,
+      wettedPerimeter:
+        avgPerimeter != null ? +avgPerimeter.toFixed(6) : undefined,
+      rawDistance:
+        avgRawDistance != null ? +avgRawDistance.toFixed(6) : undefined,
+      rawRadarStatus: latest.rawRadarStatus,
       sensorType: latest.sensorType,
       gpsCoordinates:
         latitude != null && longitude != null
@@ -134,6 +146,13 @@ function push(canalId, readingObj) {
   const entry = store.get(canalId);
   entry.latest = readingObj;
   entry.buffer.push(readingObj);
+
+  console.log(`[DATABUFFER] Pushing reading for ${canalId}:`, {
+    depth: readingObj.depth,
+    speed: readingObj.speed,
+    status: readingObj.status,
+    timestamp: readingObj.timestamp,
+  });
 
   // Broadcast to all connected SSE clients immediately
   sseEmitter.emit("reading", { canalId, reading: readingObj });

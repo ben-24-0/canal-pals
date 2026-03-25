@@ -61,6 +61,17 @@ const canalReadingSchema = new mongoose.Schema(
       type: Number,
       min: 0,
     },
+    height: {
+      type: Number,
+      min: 0,
+    },
+    rawDistance: {
+      type: Number,
+      min: 0,
+    },
+    rawRadarStatus: {
+      type: Number,
+    },
     calculatedArea: {
       type: Number,
       min: 0,

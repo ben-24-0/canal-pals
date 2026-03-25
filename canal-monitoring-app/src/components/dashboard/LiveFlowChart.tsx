@@ -16,6 +16,7 @@ interface Point {
   time: string;
   flowRate: number;
   speed: number | null;
+  timestamp?: number;
 }
 
 const MAX_POINTS = 60;
@@ -43,6 +44,7 @@ export default function LiveFlowChart({ canalId }: { canalId: string }) {
           time: label,
           flowRate: reading.flowRate ?? 0,
           speed: reading.speed ?? null,
+          timestamp: t.getTime(),
         },
       ];
       return next.length > MAX_POINTS ? next.slice(-MAX_POINTS) : next;
@@ -83,6 +85,25 @@ export default function LiveFlowChart({ canalId }: { canalId: string }) {
             border: "1px solid hsl(var(--border))",
             borderRadius: 8,
             fontSize: 12,
+          }}
+          formatter={(value, name) => {
+            if (name === "Flow Rate") {
+              return [(value as number).toFixed(3), "Flow Rate (m³/s)"];
+            }
+            if (name === "Velocity") {
+              return value ? [(value as number).toFixed(3), "Velocity (m/s)"] : ["—", "Velocity"];
+            }
+            return [value, name];
+          }}
+          labelFormatter={(label, payload) => {
+            if (payload && payload.length > 0) {
+              const ts = payload[0].payload.timestamp;
+              if (ts) {
+                const d = new Date(ts);
+                return d.toLocaleString();
+              }
+            }
+            return label;
           }}
         />
         <Line

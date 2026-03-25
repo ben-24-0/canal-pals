@@ -4,6 +4,8 @@ const CanalReading = require("../models/CanalReading");
 const dataBuffer = require("../lib/dataBuffer");
 
 const router = express.Router();
+const DEVICE_ONLINE_WINDOW_MS =
+  (parseInt(process.env.DEVICE_ONLINE_WINDOW_SECONDS, 10) || 180) * 1000;
 
 // GET /api/dashboard/overview - Get dashboard overview
 router.get("/overview", async (req, res) => {
@@ -114,12 +116,27 @@ router.get("/metrics", async (req, res) => {
     const metrics = {};
     for (const [canalId, reading] of Object.entries(liveReadings)) {
       const info = canalMap[canalId];
+      const ts = reading?.timestamp
+        ? new Date(reading.timestamp).getTime()
+        : reading?.receivedAt
+          ? new Date(reading.receivedAt).getTime()
+          : 0;
+      const deviceOnline =
+        Number.isFinite(ts) && ts > 0
+          ? Date.now() - ts <= DEVICE_ONLINE_WINDOW_MS
+          : false;
+
       metrics[canalId] = {
         status: reading.status,
+        deviceOnline,
         flowRate: reading.flowRate,
         speed: reading.speed,
         discharge: reading.discharge,
+        height: reading.height ?? reading.depth ?? reading.waterLevel,
+        depth: reading.depth,
         waterLevel: reading.waterLevel,
+        rawDistance: reading.rawDistance,
+        sensorType: reading.sensorType,
         temperature: reading.temperature,
         batteryLevel: reading.batteryLevel,
         signalStrength: reading.signalStrength,
@@ -202,6 +219,9 @@ router.get("/timeseries/:canalId", async (req, res) => {
           avgFlowRate: { $avg: "$flowRate" },
           avgSpeed: { $avg: "$speed" },
           avgDischarge: { $avg: "$discharge" },
+          avgHeight: { $avg: "$height" },
+          avgDepth: { $avg: "$depth" },
+          avgWaterLevel: { $avg: "$waterLevel" },
           avgTemperature: { $avg: "$temperature" },
           minFlowRate: { $min: "$flowRate" },
           maxFlowRate: { $max: "$flowRate" },
@@ -218,6 +238,9 @@ router.get("/timeseries/:canalId", async (req, res) => {
           flowRate: "$avgFlowRate",
           speed: "$avgSpeed",
           discharge: "$avgDischarge",
+          avgHeight: "$avgHeight",
+          avgDepth: "$avgDepth",
+          avgWaterLevel: "$avgWaterLevel",
           temperature: "$avgTemperature",
           minFlowRate: "$minFlowRate",
           maxFlowRate: "$maxFlowRate",

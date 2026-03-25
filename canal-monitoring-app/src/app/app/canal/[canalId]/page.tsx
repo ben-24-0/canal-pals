@@ -69,6 +69,17 @@ export default function UserCanalDashboard() {
 
   const [canal, setCanal] = useState<CanalInfo | null>(null);
   const [loading, setLoading] = useState(true);
+  const [savingSettings, setSavingSettings] = useState(false);
+  const [settingsMsg, setSettingsMsg] = useState<string | null>(null);
+  const [settingsForm, setSettingsForm] = useState({
+    apn: "",
+    gprsUser: "",
+    gprsPass: "",
+    sendIntervalMs: "",
+    maxMqttFailures: "",
+    otaCheckIntervalMs: "",
+    otaToken: "",
+  });
 
   // SSE: live reading without polling
   const { reading, connected } = useCanalSSE(canalId);
@@ -124,6 +135,73 @@ export default function UserCanalDashboard() {
       ? Math.max(0, ((reading.signalStrength + 120) / 70) * 30)
       : 15;
   const healthScore = Math.round(statusScore + battScore + sigScore);
+  const ts = reading?.timestamp
+    ? new Date(reading.timestamp).getTime()
+    : reading?.receivedAt
+      ? new Date(reading.receivedAt).getTime()
+      : 0;
+  const deviceOnline = Number.isFinite(ts) && ts > 0 ? Date.now() - ts <= 180000 : false;
+
+  const publishSettings = useCallback(
+    async (extras?: Record<string, unknown>) => {
+      if (!canal) return;
+
+      const payload: Record<string, unknown> = { ...extras };
+      const map: Array<[keyof typeof settingsForm, string]> = [
+        ["apn", "apn"],
+        ["gprsUser", "gprsUser"],
+        ["gprsPass", "gprsPass"],
+        ["otaToken", "otaToken"],
+      ];
+
+      for (const [k, out] of map) {
+        const v = settingsForm[k].trim();
+        if (v.length > 0) payload[out] = v;
+      }
+
+      const intMap: Array<[keyof typeof settingsForm, string]> = [
+        ["sendIntervalMs", "sendIntervalMs"],
+        ["maxMqttFailures", "maxMqttFailures"],
+        ["otaCheckIntervalMs", "otaCheckIntervalMs"],
+      ];
+
+      for (const [k, out] of intMap) {
+        const raw = settingsForm[k].trim();
+        if (!raw) continue;
+        const n = Number(raw);
+        if (Number.isFinite(n)) payload[out] = n;
+      }
+
+      if (Object.keys(payload).length === 0) {
+        setSettingsMsg("Add at least one setting to publish.");
+        return;
+      }
+
+      setSavingSettings(true);
+      setSettingsMsg(null);
+
+      try {
+        const res = await fetch(`${BACKEND_URL}/api/esp32/settings/${canal.canalId}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+
+        const j = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          setSettingsMsg(j?.message || "Failed to publish settings.");
+          return;
+        }
+
+        setSettingsMsg("Settings published to device topic.");
+      } catch {
+        setSettingsMsg("Failed to publish settings.");
+      } finally {
+        setSavingSettings(false);
+      }
+    },
+    [canal, settingsForm],
+  );
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto">
@@ -152,9 +230,36 @@ export default function UserCanalDashboard() {
               <CardTitle className="text-base">Metrics</CardTitle>
               <Badge variant={statusCfg.variant}>{statusCfg.label}</Badge>
             </div>
+            <div className="pt-1">
+              <Badge variant={deviceOnline ? "default" : "outline"}>
+                Device {deviceOnline ? "Online" : "Offline"}
+              </Badge>
+            </div>
           </CardHeader>
           <CardContent>
             <div className="divide-y divide-border">
+              <MetricRow
+                label="Water Height"
+                value={
+                  reading?.height != null
+                    ? `${reading.height.toFixed(2)} m`
+                    : reading?.depth != null
+                      ? `${reading.depth.toFixed(2)} m`
+                      : reading?.waterLevel != null
+                        ? `${Number(reading.waterLevel).toFixed(2)} m`
+                        : "—"
+                }
+                icon={Droplets}
+              />
+              <MetricRow
+                label="Manning Velocity"
+                value={
+                  reading?.speed != null
+                    ? `${reading.speed.toFixed(2)} m/s`
+                    : "—"
+                }
+                icon={Activity}
+              />
               <MetricRow
                 label="Flow Rate"
                 value={
@@ -165,24 +270,13 @@ export default function UserCanalDashboard() {
                 icon={Gauge}
               />
               <MetricRow
-                label="Water Depth"
+                label="Sensor Distance"
                 value={
-                  reading?.depth != null
-                    ? `${reading.depth.toFixed(2)} m`
-                    : reading?.waterLevel != null
-                      ? `${Number(reading.waterLevel).toFixed(2)} m`
-                      : "—"
-                }
-                icon={Droplets}
-              />
-              <MetricRow
-                label="Velocity"
-                value={
-                  reading?.speed != null
-                    ? `${reading.speed.toFixed(2)} m/s`
+                  reading?.rawDistance != null
+                    ? `${Number(reading.rawDistance).toFixed(1)} cm`
                     : "—"
                 }
-                icon={Activity}
+                icon={Gauge}
               />
               <MetricRow
                 label="Temperature"
@@ -255,6 +349,107 @@ export default function UserCanalDashboard() {
           </CardContent>
         </Card>
       </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Device Settings</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <input
+              className="border rounded-md px-3 py-2 text-sm"
+              placeholder="APN"
+              value={settingsForm.apn}
+              onChange={(e) =>
+                setSettingsForm((p) => ({ ...p, apn: e.target.value }))
+              }
+            />
+            <input
+              className="border rounded-md px-3 py-2 text-sm"
+              placeholder="GPRS User"
+              value={settingsForm.gprsUser}
+              onChange={(e) =>
+                setSettingsForm((p) => ({ ...p, gprsUser: e.target.value }))
+              }
+            />
+            <input
+              className="border rounded-md px-3 py-2 text-sm"
+              placeholder="GPRS Password"
+              value={settingsForm.gprsPass}
+              onChange={(e) =>
+                setSettingsForm((p) => ({ ...p, gprsPass: e.target.value }))
+              }
+            />
+            <input
+              className="border rounded-md px-3 py-2 text-sm"
+              placeholder="OTA Token"
+              value={settingsForm.otaToken}
+              onChange={(e) =>
+                setSettingsForm((p) => ({ ...p, otaToken: e.target.value }))
+              }
+            />
+            <input
+              className="border rounded-md px-3 py-2 text-sm"
+              placeholder="Send Interval ms (1000..3600000)"
+              value={settingsForm.sendIntervalMs}
+              onChange={(e) =>
+                setSettingsForm((p) => ({ ...p, sendIntervalMs: e.target.value }))
+              }
+            />
+            <input
+              className="border rounded-md px-3 py-2 text-sm"
+              placeholder="Max MQTT Failures (1..100)"
+              value={settingsForm.maxMqttFailures}
+              onChange={(e) =>
+                setSettingsForm((p) => ({ ...p, maxMqttFailures: e.target.value }))
+              }
+            />
+            <input
+              className="border rounded-md px-3 py-2 text-sm md:col-span-2"
+              placeholder="OTA Check Interval ms (300000..86400000)"
+              value={settingsForm.otaCheckIntervalMs}
+              onChange={(e) =>
+                setSettingsForm((p) => ({ ...p, otaCheckIntervalMs: e.target.value }))
+              }
+            />
+          </div>
+
+          <div className="mt-4 flex flex-wrap gap-2">
+            <button
+              className="px-3 py-2 rounded-md border text-sm"
+              onClick={() => publishSettings()}
+              disabled={savingSettings}
+            >
+              {savingSettings ? "Publishing..." : "Publish Settings"}
+            </button>
+            <button
+              className="px-3 py-2 rounded-md border text-sm"
+              onClick={() => publishSettings({ forceReadNow: true })}
+              disabled={savingSettings}
+            >
+              Force Read Now
+            </button>
+            <button
+              className="px-3 py-2 rounded-md border text-sm"
+              onClick={() => publishSettings({ registerNow: true })}
+              disabled={savingSettings}
+            >
+              Register Now
+            </button>
+            <button
+              className="px-3 py-2 rounded-md border text-sm text-red-600"
+              onClick={() => publishSettings({ reboot: true })}
+              disabled={savingSettings}
+            >
+              Reboot Device
+            </button>
+          </div>
+
+          {settingsMsg ? (
+            <p className="mt-3 text-sm text-muted-foreground">{settingsMsg}</p>
+          ) : null}
+        </CardContent>
+      </Card>
 
       {/* Charts Section */}
       <Card>

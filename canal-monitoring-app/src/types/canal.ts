@@ -65,6 +65,9 @@ export interface CanalReading {
   discharge?: number;
   waterLevel?: number;
   depth?: number;
+  height?: number;
+  rawDistance?: number;
+  rawRadarStatus?: number;
 
   // Manning's calculated fields (ultrasonic)
   calculatedArea?: number;

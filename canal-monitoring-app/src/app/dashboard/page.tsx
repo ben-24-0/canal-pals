@@ -13,6 +13,9 @@ type LiveMetric = {
   flowRate: number;
   speed: number;
   discharge: number;
+  height?: number;
+  depth?: number;
+  waterLevel?: number;
   timestamp?: string;
 };
 
@@ -55,6 +58,7 @@ export default function DashboardPage() {
         id: f.properties.id,
         name: f.properties.name,
         status: live?.status ?? "—",
+        height: live?.height ?? live?.depth ?? live?.waterLevel ?? "—",
         discharge: live?.discharge ?? "—",
         flowRate: live?.flowRate ?? "—",
         speed: live?.speed ?? "—",
@@ -92,8 +96,9 @@ export default function DashboardPage() {
               <tr>
                 <th className="p-4 text-left">Canal</th>
                 <th>Status</th>
+                <th>Height (m)</th>
+                <th>Velocity (m/s)</th>
                 <th>Flow (m³/s)</th>
-                <th>Speed (m/s)</th>
                 <th>Discharge (m³/s)</th>
               </tr>
             </thead>
@@ -146,14 +151,19 @@ export default function DashboardPage() {
                     </span>
                   </td>
                   <td className="text-center">
-                    {typeof canal.flowRate === "number"
-                      ? canal.flowRate.toFixed(1)
-                      : canal.flowRate}
+                    {typeof canal.height === "number"
+                      ? canal.height.toFixed(2)
+                      : canal.height}
                   </td>
                   <td className="text-center">
                     {typeof canal.speed === "number"
                       ? canal.speed.toFixed(2)
                       : canal.speed}
+                  </td>
+                  <td className="text-center">
+                    {typeof canal.flowRate === "number"
+                      ? canal.flowRate.toFixed(1)
+                      : canal.flowRate}
                   </td>
                   <td className="text-center">
                     {typeof canal.discharge === "number"
