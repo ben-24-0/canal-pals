@@ -29,7 +29,7 @@ const MiniMap = dynamic(() => import("@/components/map/MiniMap"), {
 });
 
 const BACKEND_URL =
-  process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://localhost:3001";
+  process.env.NEXT_PUBLIC_BACKEND_URL ?? "https://canal-pals.onrender.com";
 
 const STATUS_CONFIG: Record<
   string,

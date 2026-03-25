@@ -14,7 +14,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
 
         try {
           const apiUrl =
-            process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
+            process.env.NEXT_PUBLIC_API_URL || "https://canal-pals.onrender.com";
           const res = await fetch(`${apiUrl}/api/auth/login`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },

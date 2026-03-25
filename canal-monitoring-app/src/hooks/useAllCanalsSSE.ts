@@ -14,7 +14,7 @@ import type { CanalReading } from "@/types/canal";
 const BACKEND_URL =
   process.env.NEXT_PUBLIC_BACKEND_URL ??
   process.env.NEXT_PUBLIC_API_URL ??
-  "http://localhost:3001";
+  "https://canal-pals.onrender.com";
 
 export function useAllCanalsSSE(): {
   readings: Map<string, CanalReading>;

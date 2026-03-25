@@ -38,7 +38,7 @@ const MiniMap = dynamic(() => import("@/components/map/MiniMap"), {
 });
 
 const BACKEND_URL =
-  process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://localhost:3001";
+  process.env.NEXT_PUBLIC_BACKEND_URL ?? "https://canal-pals.onrender.com";
 
 const STATUS_CONFIG: Record<
   string,
@@ -513,7 +513,7 @@ export default function AdminCanalDashboard() {
               value={<span className="capitalize">{canal.type}</span>}
             />
             <Row
-              label="ESP32 Device"
+              label="IIMS Device"
               value={canal.esp32DeviceId ?? "Not assigned"}
             />
             <Row label="Active" value={canal.isActive ? "Yes" : "No"} />
@@ -908,7 +908,7 @@ export default function AdminCanalDashboard() {
         <CardContent className="space-y-4">
           <p className="text-sm text-muted-foreground">
             Deactivating this canal will hide it from the dashboard and stop
-            accepting new data from the ESP32 device. This action can be
+            accepting new data from the IIMS device. This action can be
             reversed by reactivating it from the database.
           </p>
 

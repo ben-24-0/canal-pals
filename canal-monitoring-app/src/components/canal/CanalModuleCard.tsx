@@ -77,16 +77,21 @@ export default function CanalModuleCard({
 
       <Link href={href}>
         <CardHeader className="pb-2 pr-12">
-          <div className="flex items-center gap-2">
-            <h3 className="font-semibold text-sm truncate flex-1">
+          <div className="space-y-1.5 pr-2">
+            <h3 className="font-semibold text-sm leading-tight wrap-break-word pr-4">
               {canal.name}
             </h3>
-            <Badge variant={deviceOnline ? "default" : "outline"} className="shrink-0 text-[10px]">
-              {deviceOnline ? "Online" : "Offline"}
-            </Badge>
-            <Badge variant={cfg.variant} className="shrink-0 mr-6 text-[10px]">
-              {cfg.label}
-            </Badge>
+            <div className="flex flex-wrap items-center gap-1.5">
+              <Badge
+                variant={deviceOnline ? "default" : "outline"}
+                className="shrink-0 text-[10px]"
+              >
+                {deviceOnline ? "Online" : "Offline"}
+              </Badge>
+              <Badge variant={cfg.variant} className="shrink-0 text-[10px]">
+                {cfg.label}
+              </Badge>
+            </div>
           </div>
           <p className="text-xs text-muted-foreground font-mono">
             {canal.canalId}
