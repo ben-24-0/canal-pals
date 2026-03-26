@@ -175,20 +175,7 @@ router.post("/settings/:canalId", async (req, res) => {
       });
     }
 
-    const allowed = [
-      "canalId",
-      "deviceId",
-      "apn",
-      "gprsUser",
-      "gprsPass",
-      "sendIntervalMs",
-      "maxMqttFailures",
-      "otaCheckIntervalMs",
-      "otaToken",
-      "forceReadNow",
-      "registerNow",
-      "reboot",
-    ];
+    const allowed = ["canalId", "deviceId", "sendIntervalMs", "forceReadNow"];
 
     const payload = {};
     for (const key of allowed) {
@@ -231,6 +218,44 @@ router.post("/settings/:canalId", async (req, res) => {
     console.error("Error publishing device settings:", error);
     return res.status(500).json({
       error: "Settings publish failed",
+      message: error.message,
+    });
+  }
+});
+
+// GET /api/esp32/settings/:canalId - return last known MQTT settings for a canal device
+router.get("/settings/:canalId", async (req, res) => {
+  try {
+    const canalId = String(req.params.canalId || "").toLowerCase().trim();
+    const canal = await Canal.findOne({ canalId, isActive: true }).lean();
+
+    if (!canal) {
+      return res.status(404).json({
+        error: "Canal not found",
+        message: `Canal ${canalId} is not available`,
+      });
+    }
+
+    if (!canal.esp32DeviceId) {
+      return res.status(400).json({
+        error: "No device bound",
+        message: "This canal does not have an associated ESP32 deviceId",
+      });
+    }
+
+    const deviceSettings = mqttIngest.getDeviceSettings(canal.esp32DeviceId);
+
+    return res.json({
+      success: true,
+      canalId,
+      deviceId: canal.esp32DeviceId,
+      settings: deviceSettings || null,
+      fallbackSendIntervalMs: 10000,
+    });
+  } catch (error) {
+    console.error("Error getting device settings:", error);
+    return res.status(500).json({
+      error: "Settings retrieval failed",
       message: error.message,
     });
   }
