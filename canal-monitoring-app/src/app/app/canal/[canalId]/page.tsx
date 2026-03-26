@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { useParams } from "next/navigation";
 import { formatDistanceToNow } from "date-fns";
 import {
@@ -16,7 +16,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import type { CanalInfo } from "@/types/canal";
+import type { CanalInfo, CanalReading } from "@/types/canal";
 import LiveFlowChart from "@/components/dashboard/LiveFlowChart";
 import DailyAvgChart from "@/components/dashboard/DailyAvgChart";
 import WeeklyBarChart from "@/components/dashboard/WeeklyBarChart";
@@ -30,6 +30,55 @@ const MiniMap = dynamic(() => import("@/components/map/MiniMap"), {
 
 const BACKEND_URL =
   process.env.NEXT_PUBLIC_BACKEND_URL ?? "https://canal-pals.onrender.com";
+
+const SEND_INTERVAL_OPTIONS_MS = (() => {
+  const values: number[] = [];
+  for (let seconds = 10; seconds <= 60; seconds += 10) {
+    values.push(seconds * 1000);
+  }
+  for (let minutes = 2; minutes <= 60; minutes += 1) {
+    values.push(minutes * 60 * 1000);
+  }
+  return values;
+})();
+
+const DEFAULT_SEND_INTERVAL_MS = 10000;
+const OFFLINE_EXTRA_BUFFER_MS = 2 * 60 * 1000;
+const FORCE_READ_COOLDOWN_MS = 10 * 1000;
+const FORCE_READ_RESET_DELAY_MS = 5 * 1000;
+
+function formatInterval(ms: number): string {
+  if (ms < 60000) return `${Math.round(ms / 1000)} s`;
+  return `${Math.round(ms / 60000)} min`;
+}
+
+function getClosestIntervalIndex(ms: number): number {
+  let closestIndex = 0;
+  let closestDelta = Number.POSITIVE_INFINITY;
+
+  SEND_INTERVAL_OPTIONS_MS.forEach((candidate, idx) => {
+    const delta = Math.abs(candidate - ms);
+    if (delta < closestDelta) {
+      closestDelta = delta;
+      closestIndex = idx;
+    }
+  });
+
+  return closestIndex;
+}
+
+function getReadingTimestampMs(reading: CanalReading | null): number {
+  if (!reading) return 0;
+  if (reading.timestamp) {
+    const ts = new Date(reading.timestamp).getTime();
+    if (Number.isFinite(ts) && ts > 0) return ts;
+  }
+  if (reading.receivedAt) {
+    const ts = new Date(reading.receivedAt).getTime();
+    if (Number.isFinite(ts) && ts > 0) return ts;
+  }
+  return 0;
+}
 
 const STATUS_CONFIG: Record<
   string,
@@ -71,18 +120,24 @@ export default function UserCanalDashboard() {
   const [loading, setLoading] = useState(true);
   const [savingSettings, setSavingSettings] = useState(false);
   const [settingsMsg, setSettingsMsg] = useState<string | null>(null);
-  const [settingsForm, setSettingsForm] = useState({
-    apn: "",
-    gprsUser: "",
-    gprsPass: "",
-    sendIntervalMs: "",
-    maxMqttFailures: "",
-    otaCheckIntervalMs: "",
-    otaToken: "",
-  });
+  const [polledReading, setPolledReading] = useState<CanalReading | null>(null);
+  const [sendIntervalMs, setSendIntervalMs] = useState(DEFAULT_SEND_INTERVAL_MS);
+  const [appliedIntervalMs, setAppliedIntervalMs] = useState(DEFAULT_SEND_INTERVAL_MS);
+  const [sliderIndex, setSliderIndex] = useState(
+    getClosestIntervalIndex(DEFAULT_SEND_INTERVAL_MS),
+  );
+  const [forceReadBusy, setForceReadBusy] = useState(false);
+  const [lastForceReadAt, setLastForceReadAt] = useState(0);
+  const forceReadResetTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // SSE: live reading without polling
   const { reading, connected } = useCanalSSE(canalId);
+
+  const activeReading = useMemo(() => {
+    const sseTs = getReadingTimestampMs(reading);
+    const pollTs = getReadingTimestampMs(polledReading);
+    return sseTs >= pollTs ? reading : polledReading;
+  }, [reading, polledReading]);
 
   const fetchCanal = useCallback(async () => {
     try {
@@ -98,9 +153,66 @@ export default function UserCanalDashboard() {
     }
   }, [canalId]);
 
+  const fetchLatestReading = useCallback(async () => {
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/esp32/latest/${canalId}`);
+      if (!res.ok) return;
+      const body = await res.json().catch(() => null);
+      if (body?.reading) {
+        setPolledReading(body.reading as CanalReading);
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  }, [canalId]);
+
+  const fetchDeviceSettings = useCallback(async () => {
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/esp32/settings/${canalId}`);
+      if (!res.ok) return;
+      const body = await res.json().catch(() => null);
+      const remoteInterval = Number(body?.settings?.sendIntervalMs);
+      const fallbackInterval = Number(body?.fallbackSendIntervalMs);
+
+      const targetInterval =
+        Number.isFinite(remoteInterval) && remoteInterval > 0
+          ? remoteInterval
+          : Number.isFinite(fallbackInterval) && fallbackInterval > 0
+            ? fallbackInterval
+            : DEFAULT_SEND_INTERVAL_MS;
+
+      const nearestIdx = getClosestIntervalIndex(targetInterval);
+      const nearestMs = SEND_INTERVAL_OPTIONS_MS[nearestIdx];
+      setSliderIndex(nearestIdx);
+      setSendIntervalMs(nearestMs);
+      setAppliedIntervalMs(nearestMs);
+    } catch (err) {
+      console.error(err);
+    }
+  }, [canalId]);
+
   useEffect(() => {
     fetchCanal();
-  }, [fetchCanal]);
+    fetchLatestReading();
+    fetchDeviceSettings();
+  }, [fetchCanal, fetchLatestReading, fetchDeviceSettings]);
+
+  useEffect(() => {
+    if (!canalId) return;
+    const timer = setInterval(() => {
+      fetchCanal();
+      fetchLatestReading();
+    }, 10000);
+    return () => clearInterval(timer);
+  }, [canalId, fetchCanal, fetchLatestReading]);
+
+  useEffect(() => {
+    return () => {
+      if (forceReadResetTimer.current) {
+        clearTimeout(forceReadResetTimer.current);
+      }
+    };
+  }, []);
 
   if (loading) {
     return (
@@ -118,10 +230,10 @@ export default function UserCanalDashboard() {
     );
   }
 
-  const status = reading?.status ?? "STOPPED";
+  const status = activeReading?.status ?? "STOPPED";
   const statusCfg = STATUS_CONFIG[status];
-  const lastUpdated = reading?.timestamp
-    ? formatDistanceToNow(new Date(reading.timestamp), { addSuffix: true })
+  const lastUpdated = activeReading?.timestamp
+    ? formatDistanceToNow(new Date(activeReading.timestamp), { addSuffix: true })
     : "Never";
   const [lon, lat] = canal.location.coordinates;
 
@@ -129,52 +241,29 @@ export default function UserCanalDashboard() {
   const statusScore =
     status === "FLOWING" ? 40 : status === "LOW_FLOW" ? 25 : 0;
   const battScore =
-    reading?.batteryLevel != null ? (reading.batteryLevel / 100) * 30 : 15;
+    activeReading?.batteryLevel != null
+      ? (activeReading.batteryLevel / 100) * 30
+      : 15;
   const sigScore =
-    reading?.signalStrength != null
-      ? Math.max(0, ((reading.signalStrength + 120) / 70) * 30)
+    activeReading?.signalStrength != null
+      ? Math.max(0, ((activeReading.signalStrength + 120) / 70) * 30)
       : 15;
   const healthScore = Math.round(statusScore + battScore + sigScore);
-  const ts = reading?.timestamp
-    ? new Date(reading.timestamp).getTime()
-    : reading?.receivedAt
-      ? new Date(reading.receivedAt).getTime()
-      : 0;
-  const deviceOnline = Number.isFinite(ts) && ts > 0 ? Date.now() - ts <= 180000 : false;
+  const ts = getReadingTimestampMs(activeReading);
+  const offlineThresholdMs = sendIntervalMs + OFFLINE_EXTRA_BUFFER_MS;
+  const deviceOnline =
+    Number.isFinite(ts) && ts > 0 ? Date.now() - ts <= offlineThresholdMs : false;
 
   const publishSettings = useCallback(
-    async (extras?: Record<string, unknown>) => {
-      if (!canal) return;
-
-      const payload: Record<string, unknown> = { ...extras };
-      const map: Array<[keyof typeof settingsForm, string]> = [
-        ["apn", "apn"],
-        ["gprsUser", "gprsUser"],
-        ["gprsPass", "gprsPass"],
-        ["otaToken", "otaToken"],
-      ];
-
-      for (const [k, out] of map) {
-        const v = settingsForm[k].trim();
-        if (v.length > 0) payload[out] = v;
-      }
-
-      const intMap: Array<[keyof typeof settingsForm, string]> = [
-        ["sendIntervalMs", "sendIntervalMs"],
-        ["maxMqttFailures", "maxMqttFailures"],
-        ["otaCheckIntervalMs", "otaCheckIntervalMs"],
-      ];
-
-      for (const [k, out] of intMap) {
-        const raw = settingsForm[k].trim();
-        if (!raw) continue;
-        const n = Number(raw);
-        if (Number.isFinite(n)) payload[out] = n;
-      }
+    async (
+      payload: Record<string, unknown>,
+      successMessage = "Settings published to device topic.",
+    ) => {
+      if (!canal) return false;
 
       if (Object.keys(payload).length === 0) {
         setSettingsMsg("Add at least one setting to publish.");
-        return;
+        return false;
       }
 
       setSavingSettings(true);
@@ -190,18 +279,63 @@ export default function UserCanalDashboard() {
         const j = await res.json().catch(() => ({}));
         if (!res.ok) {
           setSettingsMsg(j?.message || "Failed to publish settings.");
-          return;
+          return false;
         }
 
-        setSettingsMsg("Settings published to device topic.");
+        setSettingsMsg(successMessage);
+        return true;
       } catch {
         setSettingsMsg("Failed to publish settings.");
+        return false;
       } finally {
         setSavingSettings(false);
       }
     },
-    [canal, settingsForm],
+    [canal],
   );
+
+  const commitSendInterval = useCallback(async () => {
+    if (sendIntervalMs === appliedIntervalMs) return;
+    const ok = await publishSettings(
+      { sendIntervalMs },
+      `Send interval updated to ${formatInterval(sendIntervalMs)}.`,
+    );
+    if (ok) {
+      setAppliedIntervalMs(sendIntervalMs);
+    }
+  }, [sendIntervalMs, appliedIntervalMs, publishSettings]);
+
+  const handleForceRead = useCallback(async () => {
+    const now = Date.now();
+    const remainingMs = FORCE_READ_COOLDOWN_MS - (now - lastForceReadAt);
+    if (remainingMs > 0) {
+      const remainingSec = Math.ceil(remainingMs / 1000);
+      setSettingsMsg(`Please wait ${remainingSec}s before triggering again.`);
+      return;
+    }
+
+    setLastForceReadAt(now);
+    setForceReadBusy(true);
+
+    const sent = await publishSettings(
+      { forceReadNow: true },
+      "Measure command sent.",
+    );
+
+    if (!sent) {
+      setForceReadBusy(false);
+      return;
+    }
+
+    if (forceReadResetTimer.current) {
+      clearTimeout(forceReadResetTimer.current);
+    }
+
+    forceReadResetTimer.current = setTimeout(async () => {
+      await publishSettings({ forceReadNow: false }, "Measure command completed.");
+      setForceReadBusy(false);
+    }, FORCE_READ_RESET_DELAY_MS);
+  }, [lastForceReadAt, publishSettings]);
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto">
@@ -241,21 +375,30 @@ export default function UserCanalDashboard() {
               <MetricRow
                 label="Water Height"
                 value={
-                  reading?.height != null
-                    ? `${reading.height.toFixed(2)} m`
-                    : reading?.depth != null
-                      ? `${reading.depth.toFixed(2)} m`
-                      : reading?.waterLevel != null
-                        ? `${Number(reading.waterLevel).toFixed(2)} m`
+                  activeReading?.height != null
+                    ? `${activeReading.height.toFixed(2)} m`
+                    : activeReading?.depth != null
+                      ? `${activeReading.depth.toFixed(2)} m`
+                      : activeReading?.waterLevel != null
+                        ? `${Number(activeReading.waterLevel).toFixed(2)} m`
                         : "—"
                 }
                 icon={Droplets}
               />
+              <div className="py-2">
+                <button
+                  className="px-3 py-1.5 rounded-md border text-xs"
+                  onClick={handleForceRead}
+                  disabled={savingSettings || forceReadBusy}
+                >
+                  {forceReadBusy ? "Measuring..." : "Measure Now"}
+                </button>
+              </div>
               <MetricRow
                 label="Manning Velocity"
                 value={
-                  reading?.speed != null
-                    ? `${reading.speed.toFixed(2)} m/s`
+                  activeReading?.speed != null
+                    ? `${activeReading.speed.toFixed(2)} m/s`
                     : "—"
                 }
                 icon={Activity}
@@ -263,8 +406,8 @@ export default function UserCanalDashboard() {
               <MetricRow
                 label="Flow Rate"
                 value={
-                  reading?.flowRate != null
-                    ? `${reading.flowRate.toFixed(2)} m³/s`
+                  activeReading?.flowRate != null
+                    ? `${activeReading.flowRate.toFixed(2)} m³/s`
                     : "—"
                 }
                 icon={Gauge}
@@ -272,8 +415,8 @@ export default function UserCanalDashboard() {
               <MetricRow
                 label="Sensor Distance"
                 value={
-                  reading?.rawDistance != null
-                    ? `${Number(reading.rawDistance).toFixed(1)} cm`
+                  activeReading?.rawDistance != null
+                    ? `${Number(activeReading.rawDistance).toFixed(1)} cm`
                     : "—"
                 }
                 icon={Gauge}
@@ -281,8 +424,8 @@ export default function UserCanalDashboard() {
               <MetricRow
                 label="Temperature"
                 value={
-                  reading?.temperature != null
-                    ? `${reading.temperature.toFixed(1)} °C`
+                  activeReading?.temperature != null
+                    ? `${activeReading.temperature.toFixed(1)} °C`
                     : "—"
                 }
                 icon={Thermometer}
@@ -290,8 +433,8 @@ export default function UserCanalDashboard() {
               <MetricRow
                 label="Battery"
                 value={
-                  reading?.batteryLevel != null
-                    ? `${reading.batteryLevel.toFixed(0)}%`
+                  activeReading?.batteryLevel != null
+                    ? `${activeReading.batteryLevel.toFixed(0)}%`
                     : "—"
                 }
                 icon={Battery}
@@ -299,8 +442,8 @@ export default function UserCanalDashboard() {
               <MetricRow
                 label="Signal"
                 value={
-                  reading?.signalStrength != null
-                    ? `${reading.signalStrength} dBm`
+                  activeReading?.signalStrength != null
+                    ? `${activeReading.signalStrength} dBm`
                     : "—"
                 }
                 icon={Wifi}
@@ -342,7 +485,7 @@ export default function UserCanalDashboard() {
                   name: canal.name,
                   coordinates: canal.location.coordinates,
                   status,
-                  flowRate: reading?.flowRate ?? null,
+                  flowRate: activeReading?.flowRate ?? null,
                 },
               ]}
             />
@@ -355,93 +498,42 @@ export default function UserCanalDashboard() {
           <CardTitle className="text-base">Device Settings</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div className="space-y-3">
+            <div className="flex items-center justify-between gap-3 text-sm">
+              <span className="text-muted-foreground">Send interval</span>
+              <span className="font-medium">{formatInterval(sendIntervalMs)}</span>
+            </div>
             <input
-              className="border rounded-md px-3 py-2 text-sm"
-              placeholder="APN"
-              value={settingsForm.apn}
-              onChange={(e) =>
-                setSettingsForm((p) => ({ ...p, apn: e.target.value }))
-              }
+              type="range"
+              className="w-full"
+              min={0}
+              max={SEND_INTERVAL_OPTIONS_MS.length - 1}
+              step={1}
+              value={sliderIndex}
+              onChange={(e) => {
+                const idx = Number(e.target.value);
+                const nextMs = SEND_INTERVAL_OPTIONS_MS[idx] ?? DEFAULT_SEND_INTERVAL_MS;
+                setSliderIndex(idx);
+                setSendIntervalMs(nextMs);
+              }}
+              onMouseUp={commitSendInterval}
+              onTouchEnd={commitSendInterval}
+              onKeyUp={commitSendInterval}
             />
-            <input
-              className="border rounded-md px-3 py-2 text-sm"
-              placeholder="GPRS User"
-              value={settingsForm.gprsUser}
-              onChange={(e) =>
-                setSettingsForm((p) => ({ ...p, gprsUser: e.target.value }))
-              }
-            />
-            <input
-              className="border rounded-md px-3 py-2 text-sm"
-              placeholder="GPRS Password"
-              value={settingsForm.gprsPass}
-              onChange={(e) =>
-                setSettingsForm((p) => ({ ...p, gprsPass: e.target.value }))
-              }
-            />
-            <input
-              className="border rounded-md px-3 py-2 text-sm"
-              placeholder="OTA Token"
-              value={settingsForm.otaToken}
-              onChange={(e) =>
-                setSettingsForm((p) => ({ ...p, otaToken: e.target.value }))
-              }
-            />
-            <input
-              className="border rounded-md px-3 py-2 text-sm"
-              placeholder="Send Interval ms (1000..3600000)"
-              value={settingsForm.sendIntervalMs}
-              onChange={(e) =>
-                setSettingsForm((p) => ({ ...p, sendIntervalMs: e.target.value }))
-              }
-            />
-            <input
-              className="border rounded-md px-3 py-2 text-sm"
-              placeholder="Max MQTT Failures (1..100)"
-              value={settingsForm.maxMqttFailures}
-              onChange={(e) =>
-                setSettingsForm((p) => ({ ...p, maxMqttFailures: e.target.value }))
-              }
-            />
-            <input
-              className="border rounded-md px-3 py-2 text-sm md:col-span-2"
-              placeholder="OTA Check Interval ms (300000..86400000)"
-              value={settingsForm.otaCheckIntervalMs}
-              onChange={(e) =>
-                setSettingsForm((p) => ({ ...p, otaCheckIntervalMs: e.target.value }))
-              }
-            />
+            <div className="flex justify-between text-xs text-muted-foreground">
+              <span>10 s</span>
+              <span>1 min</span>
+              <span>60 min</span>
+            </div>
           </div>
 
           <div className="mt-4 flex flex-wrap gap-2">
             <button
               className="px-3 py-2 rounded-md border text-sm"
-              onClick={() => publishSettings()}
+              onClick={commitSendInterval}
               disabled={savingSettings}
             >
-              {savingSettings ? "Publishing..." : "Publish Settings"}
-            </button>
-            <button
-              className="px-3 py-2 rounded-md border text-sm"
-              onClick={() => publishSettings({ forceReadNow: true })}
-              disabled={savingSettings}
-            >
-              Force Read Now
-            </button>
-            <button
-              className="px-3 py-2 rounded-md border text-sm"
-              onClick={() => publishSettings({ registerNow: true })}
-              disabled={savingSettings}
-            >
-              Register Now
-            </button>
-            <button
-              className="px-3 py-2 rounded-md border text-sm text-red-600"
-              onClick={() => publishSettings({ reboot: true })}
-              disabled={savingSettings}
-            >
-              Reboot Device
+              {savingSettings ? "Publishing..." : "Apply Interval"}
             </button>
           </div>
 

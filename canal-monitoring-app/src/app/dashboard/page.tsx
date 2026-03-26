@@ -76,7 +76,7 @@ export default function DashboardPage() {
           Canal Hub Dashboard
         </h1>
         <p className="text-xs text-gray-500 mb-6">
-          Live data from ESP32 sensors &middot; updates every{" "}
+          Live data from IIMS sensors &middot; updates every{" "}
           {POLL_INTERVAL / 1000}s
         </p>
 
