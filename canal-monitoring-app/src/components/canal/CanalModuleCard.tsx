@@ -45,15 +45,20 @@ export default function CanalModuleCard({
 }: Props) {
   const status = reading?.status ?? "STOPPED";
   const cfg = STATUS_CONFIG[status] ?? STATUS_CONFIG.STOPPED;
-  const receivedTs = reading?.receivedAt ? new Date(reading.receivedAt).getTime() : NaN;
-  const readingTs = reading?.timestamp ? new Date(reading.timestamp).getTime() : NaN;
+  const receivedTs = reading?.receivedAt
+    ? new Date(reading.receivedAt).getTime()
+    : NaN;
+  const readingTs = reading?.timestamp
+    ? new Date(reading.timestamp).getTime()
+    : NaN;
   const ts = Number.isFinite(receivedTs)
     ? receivedTs
     : Number.isFinite(readingTs)
       ? readingTs
       : 0;
   const deviceOnline = Number.isFinite(ts) && ts > 0;
-  const measuredAt = ts > 0 ? new Date(ts).toLocaleString() : "Waiting for reading";
+  const measuredAt =
+    ts > 0 ? new Date(ts).toLocaleString() : "Waiting for reading";
   const href = isAdmin
     ? `/app/admin/canal/${canal.canalId}`
     : `/app/canal/${canal.canalId}`;

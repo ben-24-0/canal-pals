@@ -14,7 +14,8 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
 
         try {
           const apiUrl =
-            process.env.NEXT_PUBLIC_API_URL || "https://canal-pals.onrender.com";
+            process.env.NEXT_PUBLIC_API_URL ||
+            "https://canal-pals.onrender.com";
           const res = await fetch(`${apiUrl}/api/auth/login`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -66,7 +67,9 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
 
         // Allow localhost/loopback redirects during local development,
         // even if NEXTAUTH_URL points to a hosted deployment.
-        if (/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(target.origin)) {
+        if (
+          /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(target.origin)
+        ) {
           return url;
         }
       } catch {

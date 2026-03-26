@@ -14,7 +14,8 @@ import canals from "../../data/canals";
 import type { FeatureCollection, Geometry, GeoJsonProperties } from "geojson";
 
 import { osmStyle } from "../../lib/mapConfig";
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "https://canal-pals.onrender.com";
+const API_BASE =
+  process.env.NEXT_PUBLIC_API_URL || "https://canal-pals.onrender.com";
 
 type HoverInfo = {
   longitude: number;
@@ -96,7 +97,9 @@ export default function CanalMap({
     let cancelled = false;
     async function fetchMetrics() {
       try {
-        const res = await fetch(`${API_BASE}/api/esp32/latest/${selectedCanal.id}`);
+        const res = await fetch(
+          `${API_BASE}/api/esp32/latest/${selectedCanal.id}`,
+        );
         if (!res.ok) return;
         const json = await res.json();
         if (cancelled) return;
@@ -130,7 +133,11 @@ export default function CanalMap({
           },
         })}
       >
-        <Source id="canals" type="geojson" data={canals as FeatureCollection<Geometry, GeoJsonProperties>}>
+        <Source
+          id="canals"
+          type="geojson"
+          data={canals as FeatureCollection<Geometry, GeoJsonProperties>}
+        >
           <Layer
             id="canal-points"
             type="circle"
@@ -169,8 +176,14 @@ export default function CanalMap({
               {selectedMetrics ? (
                 <>
                   <p>
-                    Status: {" "}
-                    <span className={selectedMetrics.status === "FLOWING" ? "text-green-600" : "text-red-600"}>
+                    Status:{" "}
+                    <span
+                      className={
+                        selectedMetrics.status === "FLOWING"
+                          ? "text-green-600"
+                          : "text-red-600"
+                      }
+                    >
                       {selectedMetrics.status}
                     </span>
                   </p>

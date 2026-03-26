@@ -59,11 +59,13 @@ interface TimelinePoint {
   flowRate: number;
 }
 
-function resolveReadingTime(reading: {
-  timestamp?: string | number | Date;
-  receivedAt?: string | number | Date;
-  createdAt?: string | number | Date;
-} | null): number | null {
+function resolveReadingTime(
+  reading: {
+    timestamp?: string | number | Date;
+    receivedAt?: string | number | Date;
+    createdAt?: string | number | Date;
+  } | null,
+): number | null {
   if (!reading) return null;
 
   const candidates = [reading.receivedAt, reading.timestamp, reading.createdAt];
@@ -298,19 +300,21 @@ export default function AdminCanalDashboard() {
   }
 
   const status = reading?.status ?? "STOPPED";
-  
+
   // ─── Time-based offline detection ─────────────────────────
   const lastReadingTime =
-    resolveReadingTime(reading as { timestamp?: string; receivedAt?: string } | null) ??
+    resolveReadingTime(
+      reading as { timestamp?: string; receivedAt?: string } | null,
+    ) ??
     timeline[timeline.length - 1]?.timestamp ??
     null;
   const isOffline = !connected && !lastReadingTime;
-  
+
   const getTimeSinceReading = () => {
     if (!lastReadingTime) return "—";
     return new Date(lastReadingTime).toLocaleString();
   };
-  
+
   const [lon, lat] = canal.location.coordinates;
   const mp = canal.manningsParams;
   const currentHeight =
@@ -322,12 +326,13 @@ export default function AdminCanalDashboard() {
     : "Waiting for reading";
 
   const predictionData = (() => {
-    if (timeline.length === 0) return [] as Array<{
-      timestamp: number;
-      label: string;
-      actualHeight?: number;
-      predictedHeight?: number;
-    }>;
+    if (timeline.length === 0)
+      return [] as Array<{
+        timestamp: number;
+        label: string;
+        actualHeight?: number;
+        predictedHeight?: number;
+      }>;
 
     const past = timeline.slice(-12).map((p) => ({
       timestamp: p.timestamp,
@@ -419,7 +424,9 @@ export default function AdminCanalDashboard() {
             {/* Primary: Water Depth/Height - EMPHASIZED */}
             <div className="bg-linear-to-br from-blue-50 to-blue-50/50 dark:from-blue-950/20 dark:to-blue-950/10 rounded-lg p-4 border border-blue-200 dark:border-blue-800">
               <div className="flex items-center justify-between gap-3">
-                <span className="text-sm text-muted-foreground">Water Height</span>
+                <span className="text-sm text-muted-foreground">
+                  Water Height
+                </span>
                 <span className="text-xs text-muted-foreground text-right">
                   {readingTimestampLabel}
                 </span>
@@ -431,7 +438,8 @@ export default function AdminCanalDashboard() {
                 <span className="text-lg text-muted-foreground">m</span>
               </div>
               <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
-                <Clock className="w-3 h-3" /> Last reading: {getTimeSinceReading()}
+                <Clock className="w-3 h-3" /> Last reading:{" "}
+                {getTimeSinceReading()}
               </p>
             </div>
 
@@ -447,7 +455,9 @@ export default function AdminCanalDashboard() {
               <div className="rounded-lg bg-muted/30 p-3 border">
                 <p className="text-xs text-muted-foreground mb-1">Flow Rate</p>
                 <p className="text-xl font-semibold">
-                  {reading?.flowRate != null ? reading.flowRate.toFixed(2) : "—"}
+                  {reading?.flowRate != null
+                    ? reading.flowRate.toFixed(2)
+                    : "—"}
                 </p>
                 <p className="text-xs text-muted-foreground">m³/s</p>
               </div>
@@ -561,8 +571,12 @@ export default function AdminCanalDashboard() {
               <thead className="bg-muted/40 text-muted-foreground">
                 <tr>
                   <th className="text-left px-3 py-2 font-medium">Timestamp</th>
-                  <th className="text-right px-3 py-2 font-medium">Height (m)</th>
-                  <th className="text-right px-3 py-2 font-medium">Flow Rate (m³/s)</th>
+                  <th className="text-right px-3 py-2 font-medium">
+                    Height (m)
+                  </th>
+                  <th className="text-right px-3 py-2 font-medium">
+                    Flow Rate (m³/s)
+                  </th>
                 </tr>
               </thead>
               <tbody>
@@ -577,10 +591,19 @@ export default function AdminCanalDashboard() {
                     .slice(-20)
                     .reverse()
                     .map((row) => (
-                      <tr key={`${row.timestamp}-${row.flowRate}`} className="border-t">
-                        <td className="px-3 py-2">{new Date(row.timestamp).toLocaleString()}</td>
-                        <td className="px-3 py-2 text-right font-mono">{row.height.toFixed(3)}</td>
-                        <td className="px-3 py-2 text-right font-mono">{row.flowRate.toFixed(3)}</td>
+                      <tr
+                        key={`${row.timestamp}-${row.flowRate}`}
+                        className="border-t"
+                      >
+                        <td className="px-3 py-2">
+                          {new Date(row.timestamp).toLocaleString()}
+                        </td>
+                        <td className="px-3 py-2 text-right font-mono">
+                          {row.height.toFixed(3)}
+                        </td>
+                        <td className="px-3 py-2 text-right font-mono">
+                          {row.flowRate.toFixed(3)}
+                        </td>
                       </tr>
                     ))
                 )}
@@ -777,7 +800,9 @@ export default function AdminCanalDashboard() {
                       <button
                         key={String(v)}
                         type="button"
-                        onClick={() => setEditForm((p) => ({ ...p, isActive: v }))}
+                        onClick={() =>
+                          setEditForm((p) => ({ ...p, isActive: v }))
+                        }
                         disabled={!isEditMode}
                         className={`px-3 py-1.5 text-xs rounded-lg border transition-colors ${
                           editForm.isActive === v
@@ -807,14 +832,19 @@ export default function AdminCanalDashboard() {
                     value={editForm.depthOffset}
                     disabled={!isEditMode}
                     onChange={(e) =>
-                      setEditForm((p) => ({ ...p, depthOffset: e.target.value }))
+                      setEditForm((p) => ({
+                        ...p,
+                        depthOffset: e.target.value,
+                      }))
                     }
                     className="max-w-xs"
                   />
                   <p className="text-xs text-muted-foreground">
-                    Physical distance (cm) from the ultrasonic sensor down to the
-                    canal floor when empty.{" "}
-                    <strong>Water depth = this value − measured distance.</strong>
+                    Physical distance (cm) from the ultrasonic sensor down to
+                    the canal floor when empty.{" "}
+                    <strong>
+                      Water depth = this value − measured distance.
+                    </strong>
                   </p>
                 </div>
               )}
@@ -834,149 +864,153 @@ export default function AdminCanalDashboard() {
                     }
                   />
                 </div>
-            <div className="space-y-2">
-              <Label htmlFor="lowerLimit">Low Flow Threshold (m³/s)</Label>
-              <Input
-                id="lowerLimit"
-                type="number"
-                step="any"
-                value={editForm.lowerLimit}
-                disabled={!isEditMode}
-                onChange={(e) =>
-                  setEditForm((p) => ({ ...p, lowerLimit: e.target.value }))
-                }
-              />
-            </div>
-          </div>
+                <div className="space-y-2">
+                  <Label htmlFor="lowerLimit">Low Flow Threshold (m³/s)</Label>
+                  <Input
+                    id="lowerLimit"
+                    type="number"
+                    step="any"
+                    value={editForm.lowerLimit}
+                    disabled={!isEditMode}
+                    onChange={(e) =>
+                      setEditForm((p) => ({ ...p, lowerLimit: e.target.value }))
+                    }
+                  />
+                </div>
+              </div>
 
-          {/* Manning's params */}
-          <div className="space-y-3">
-            <p className="text-sm font-medium">
-              Manning&apos;s Equation Parameters
-            </p>
-            <div className="space-y-2">
-              <Label>Cross-Section Shape</Label>
-              <div className="flex gap-2">
-                {(["trapezoid", "rectangle", "circle"] as const).map((s) => (
-                  <button
-                    key={s}
-                    type="button"
-                    onClick={() => setEditForm((p) => ({ ...p, shape: s }))}
-                    disabled={!isEditMode}
-                    className={`px-3 py-1.5 text-xs rounded-lg border transition-colors capitalize ${
-                      editForm.shape === s
-                        ? "bg-primary text-primary-foreground border-primary"
-                        : "hover:bg-muted"
-                    }`}
-                  >
-                    {s}
-                  </button>
-                ))}
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="mp-n">Manning&apos;s n</Label>
-                <Input
-                  id="mp-n"
-                  type="number"
-                  step="any"
-                  value={editForm.n}
-                  disabled={!isEditMode}
-                  onChange={(e) =>
-                    setEditForm((p) => ({ ...p, n: e.target.value }))
-                  }
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="mp-S">Bed Slope S</Label>
-                <Input
-                  id="mp-S"
-                  type="number"
-                  step="any"
-                  value={editForm.S}
-                  disabled={!isEditMode}
-                  onChange={(e) =>
-                    setEditForm((p) => ({ ...p, S: e.target.value }))
-                  }
-                />
-              </div>
-              {editForm.shape !== "circle" && (
-                <div className="space-y-2">
-                  <Label htmlFor="mp-b">Bottom Width b (m)</Label>
-                  <Input
-                    id="mp-b"
-                    type="number"
-                    step="any"
-                    value={editForm.b}
-                    disabled={!isEditMode}
-                    onChange={(e) =>
-                      setEditForm((p) => ({ ...p, b: e.target.value }))
-                    }
-                  />
-                </div>
-              )}
-              {editForm.shape === "trapezoid" && (
-                <div className="space-y-2">
-                  <Label htmlFor="mp-z">Side Slope z (H:V)</Label>
-                  <Input
-                    id="mp-z"
-                    type="number"
-                    step="any"
-                    value={editForm.z}
-                    disabled={!isEditMode}
-                    onChange={(e) =>
-                      setEditForm((p) => ({ ...p, z: e.target.value }))
-                    }
-                  />
-                </div>
-              )}
-              {editForm.shape === "circle" && (
-                <div className="space-y-2">
-                  <Label htmlFor="mp-D">Diameter D (m)</Label>
-                  <Input
-                    id="mp-D"
-                    type="number"
-                    step="any"
-                    value={editForm.D}
-                    disabled={!isEditMode}
-                    onChange={(e) =>
-                      setEditForm((p) => ({ ...p, D: e.target.value }))
-                    }
-                  />
-                </div>
-              )}
-              <div className="space-y-2">
-                <Label htmlFor="mp-u">Unit Factor u</Label>
-                <Input
-                  id="mp-u"
-                  type="number"
-                  step="any"
-                  value={editForm.u}
-                  disabled={!isEditMode}
-                  onChange={(e) =>
-                    setEditForm((p) => ({ ...p, u: e.target.value }))
-                  }
-                />
-                <p className="text-xs text-muted-foreground">
-                  1 = SI, 1.49 = US
+              {/* Manning's params */}
+              <div className="space-y-3">
+                <p className="text-sm font-medium">
+                  Manning&apos;s Equation Parameters
                 </p>
+                <div className="space-y-2">
+                  <Label>Cross-Section Shape</Label>
+                  <div className="flex gap-2">
+                    {(["trapezoid", "rectangle", "circle"] as const).map(
+                      (s) => (
+                        <button
+                          key={s}
+                          type="button"
+                          onClick={() =>
+                            setEditForm((p) => ({ ...p, shape: s }))
+                          }
+                          disabled={!isEditMode}
+                          className={`px-3 py-1.5 text-xs rounded-lg border transition-colors capitalize ${
+                            editForm.shape === s
+                              ? "bg-primary text-primary-foreground border-primary"
+                              : "hover:bg-muted"
+                          }`}
+                        >
+                          {s}
+                        </button>
+                      ),
+                    )}
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="mp-n">Manning&apos;s n</Label>
+                    <Input
+                      id="mp-n"
+                      type="number"
+                      step="any"
+                      value={editForm.n}
+                      disabled={!isEditMode}
+                      onChange={(e) =>
+                        setEditForm((p) => ({ ...p, n: e.target.value }))
+                      }
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="mp-S">Bed Slope S</Label>
+                    <Input
+                      id="mp-S"
+                      type="number"
+                      step="any"
+                      value={editForm.S}
+                      disabled={!isEditMode}
+                      onChange={(e) =>
+                        setEditForm((p) => ({ ...p, S: e.target.value }))
+                      }
+                    />
+                  </div>
+                  {editForm.shape !== "circle" && (
+                    <div className="space-y-2">
+                      <Label htmlFor="mp-b">Bottom Width b (m)</Label>
+                      <Input
+                        id="mp-b"
+                        type="number"
+                        step="any"
+                        value={editForm.b}
+                        disabled={!isEditMode}
+                        onChange={(e) =>
+                          setEditForm((p) => ({ ...p, b: e.target.value }))
+                        }
+                      />
+                    </div>
+                  )}
+                  {editForm.shape === "trapezoid" && (
+                    <div className="space-y-2">
+                      <Label htmlFor="mp-z">Side Slope z (H:V)</Label>
+                      <Input
+                        id="mp-z"
+                        type="number"
+                        step="any"
+                        value={editForm.z}
+                        disabled={!isEditMode}
+                        onChange={(e) =>
+                          setEditForm((p) => ({ ...p, z: e.target.value }))
+                        }
+                      />
+                    </div>
+                  )}
+                  {editForm.shape === "circle" && (
+                    <div className="space-y-2">
+                      <Label htmlFor="mp-D">Diameter D (m)</Label>
+                      <Input
+                        id="mp-D"
+                        type="number"
+                        step="any"
+                        value={editForm.D}
+                        disabled={!isEditMode}
+                        onChange={(e) =>
+                          setEditForm((p) => ({ ...p, D: e.target.value }))
+                        }
+                      />
+                    </div>
+                  )}
+                  <div className="space-y-2">
+                    <Label htmlFor="mp-u">Unit Factor u</Label>
+                    <Input
+                      id="mp-u"
+                      type="number"
+                      step="any"
+                      value={editForm.u}
+                      disabled={!isEditMode}
+                      onChange={(e) =>
+                        setEditForm((p) => ({ ...p, u: e.target.value }))
+                      }
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      1 = SI, 1.49 = US
+                    </p>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="mp-depthMax">Max Depth (m)</Label>
+                    <Input
+                      id="mp-depthMax"
+                      type="number"
+                      step="any"
+                      value={editForm.depthMax}
+                      disabled={!isEditMode}
+                      onChange={(e) =>
+                        setEditForm((p) => ({ ...p, depthMax: e.target.value }))
+                      }
+                    />
+                  </div>
+                </div>
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="mp-depthMax">Max Depth (m)</Label>
-                <Input
-                  id="mp-depthMax"
-                  type="number"
-                  step="any"
-                  value={editForm.depthMax}
-                  disabled={!isEditMode}
-                  onChange={(e) =>
-                    setEditForm((p) => ({ ...p, depthMax: e.target.value }))
-                  }
-                />
-              </div>
-            </div>
-          </div>
             </>
           )}
 
@@ -1008,11 +1042,20 @@ export default function AdminCanalDashboard() {
           ) : (
             <div className="space-y-8">
               <div>
-                <h3 className="text-sm font-semibold mb-2">Height vs Timestamp</h3>
+                <h3 className="text-sm font-semibold mb-2">
+                  Height vs Timestamp
+                </h3>
                 <ResponsiveContainer width="100%" height={260}>
                   <AreaChart data={timeline}>
-                    <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
-                    <XAxis dataKey="label" tick={{ fontSize: 11 }} interval="preserveStartEnd" />
+                    <CartesianGrid
+                      strokeDasharray="3 3"
+                      className="stroke-border"
+                    />
+                    <XAxis
+                      dataKey="label"
+                      tick={{ fontSize: 11 }}
+                      interval="preserveStartEnd"
+                    />
                     <YAxis
                       tick={{ fontSize: 11 }}
                       label={{
@@ -1024,10 +1067,15 @@ export default function AdminCanalDashboard() {
                       domain={[0, 3]}
                     />
                     <Tooltip
-                      formatter={(value: number) => [value.toFixed(3), "Height (m)"]}
+                      formatter={(value: number) => [
+                        value.toFixed(3),
+                        "Height (m)",
+                      ]}
                       labelFormatter={(_, payload) => {
                         if (payload && payload[0]?.payload?.timestamp) {
-                          return new Date(payload[0].payload.timestamp).toLocaleString();
+                          return new Date(
+                            payload[0].payload.timestamp,
+                          ).toLocaleString();
                         }
                         return "";
                       }}
@@ -1044,11 +1092,20 @@ export default function AdminCanalDashboard() {
               </div>
 
               <div>
-                <h3 className="text-sm font-semibold mb-2">Flow Rate vs Timestamp</h3>
+                <h3 className="text-sm font-semibold mb-2">
+                  Flow Rate vs Timestamp
+                </h3>
                 <ResponsiveContainer width="100%" height={260}>
                   <LineChart data={timeline}>
-                    <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
-                    <XAxis dataKey="label" tick={{ fontSize: 11 }} interval="preserveStartEnd" />
+                    <CartesianGrid
+                      strokeDasharray="3 3"
+                      className="stroke-border"
+                    />
+                    <XAxis
+                      dataKey="label"
+                      tick={{ fontSize: 11 }}
+                      interval="preserveStartEnd"
+                    />
                     <YAxis
                       tick={{ fontSize: 11 }}
                       label={{
@@ -1059,10 +1116,15 @@ export default function AdminCanalDashboard() {
                       }}
                     />
                     <Tooltip
-                      formatter={(value: number) => [value.toFixed(3), "Flow Rate (m³/s)"]}
+                      formatter={(value: number) => [
+                        value.toFixed(3),
+                        "Flow Rate (m³/s)",
+                      ]}
                       labelFormatter={(_, payload) => {
                         if (payload && payload[0]?.payload?.timestamp) {
-                          return new Date(payload[0].payload.timestamp).toLocaleString();
+                          return new Date(
+                            payload[0].payload.timestamp,
+                          ).toLocaleString();
                         }
                         return "";
                       }}
@@ -1079,11 +1141,20 @@ export default function AdminCanalDashboard() {
               </div>
 
               <div>
-                <h3 className="text-sm font-semibold mb-2">Predicted Height Rise</h3>
+                <h3 className="text-sm font-semibold mb-2">
+                  Predicted Height Rise
+                </h3>
                 <ResponsiveContainer width="100%" height={260}>
                   <LineChart data={predictionData}>
-                    <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
-                    <XAxis dataKey="label" tick={{ fontSize: 11 }} interval="preserveStartEnd" />
+                    <CartesianGrid
+                      strokeDasharray="3 3"
+                      className="stroke-border"
+                    />
+                    <XAxis
+                      dataKey="label"
+                      tick={{ fontSize: 11 }}
+                      interval="preserveStartEnd"
+                    />
                     <YAxis
                       tick={{ fontSize: 11 }}
                       label={{
@@ -1097,17 +1168,26 @@ export default function AdminCanalDashboard() {
                     <Tooltip
                       formatter={(value: number, name: string) => [
                         value.toFixed(3),
-                        name === "predictedHeight" ? "Predicted Height (m)" : "Actual Height (m)",
+                        name === "predictedHeight"
+                          ? "Predicted Height (m)"
+                          : "Actual Height (m)",
                       ]}
                       labelFormatter={(_, payload) => {
                         if (payload && payload[0]?.payload?.timestamp) {
-                          return new Date(payload[0].payload.timestamp).toLocaleString();
+                          return new Date(
+                            payload[0].payload.timestamp,
+                          ).toLocaleString();
                         }
                         return "";
                       }}
                     />
                     <ReferenceLine
-                      x={predictionData.find((d) => d.predictedHeight != null && d.actualHeight != null)?.label}
+                      x={
+                        predictionData.find(
+                          (d) =>
+                            d.predictedHeight != null && d.actualHeight != null,
+                        )?.label
+                      }
                       stroke="#94a3b8"
                       strokeDasharray="4 4"
                       label="Now"
@@ -1147,8 +1227,8 @@ export default function AdminCanalDashboard() {
         <CardContent className="space-y-4">
           <p className="text-sm text-muted-foreground">
             Deactivating this canal will hide it from the dashboard and stop
-            accepting new data from the IIMS device. This action can be
-            reversed by reactivating it from the database.
+            accepting new data from the IIMS device. This action can be reversed
+            by reactivating it from the database.
           </p>
 
           {!showDeleteConfirm ? (

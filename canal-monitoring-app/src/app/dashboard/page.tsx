@@ -5,7 +5,8 @@ import { useRouter } from "next/navigation";
 import Navbar from "../../components/Navbar";
 import canals from "../../data/canals";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "https://canal-pals.onrender.com";
+const API_BASE =
+  process.env.NEXT_PUBLIC_API_URL || "https://canal-pals.onrender.com";
 const POLL_INTERVAL = 3000; // ms — match simulator frequency
 
 type LiveMetric = {
@@ -76,7 +77,7 @@ export default function DashboardPage() {
           Canal Hub Dashboard
         </h1>
         <p className="text-xs text-gray-500 mb-6">
-          Live data from ESP32 sensors &middot; updates every{" "}
+          Live data from IIMS sensors &middot; updates every{" "}
           {POLL_INTERVAL / 1000}s
         </p>
 

@@ -41,7 +41,7 @@ export default function CanalGallery() {
           <h2 className="text-3xl font-bold text-gray-900">Monitored Canals</h2>
           <p className="mt-2 text-gray-600 max-w-xl mx-auto">
             Our system monitors key irrigation infrastructure in real time using
-            ESP32 sensors and Manning&apos;s equation for accurate flow
+            IIMS sensors and Manning&apos;s equation for accurate flow
             measurement.
           </p>
         </div>

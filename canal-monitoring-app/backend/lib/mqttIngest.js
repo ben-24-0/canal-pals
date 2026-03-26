@@ -20,6 +20,7 @@ const defaults = {
 
 let client = null;
 let mqttConnected = false;
+const latestSettingsByDevice = new Map();
 const stats = {
   startedAt: null,
   received: 0,
@@ -28,6 +29,45 @@ const stats = {
   lastMessageAt: null,
   lastError: null,
 };
+
+function sanitizeSettingsPayload(payload) {
+  if (!payload || typeof payload !== "object") return {};
+
+  const out = {};
+
+  if (payload.sendIntervalMs !== undefined) {
+    const interval = Number(payload.sendIntervalMs);
+    if (Number.isFinite(interval) && interval > 0) {
+      out.sendIntervalMs = Math.round(interval);
+    }
+  }
+
+  if (payload.forceReadNow !== undefined) {
+    out.forceReadNow = Boolean(payload.forceReadNow);
+  }
+
+  return out;
+}
+
+function rememberDeviceSettings(deviceId, payload, topic = null) {
+  const normalizedDeviceId = String(deviceId || "").trim();
+  if (!normalizedDeviceId) return null;
+
+  const sanitized = sanitizeSettingsPayload(payload);
+  if (Object.keys(sanitized).length === 0) return null;
+
+  const existing = latestSettingsByDevice.get(normalizedDeviceId) || {};
+  const record = {
+    ...existing,
+    ...sanitized,
+    deviceId: normalizedDeviceId,
+    topic: topic || existing.topic || `canal/${normalizedDeviceId}/settings`,
+    updatedAt: new Date().toISOString(),
+  };
+
+  latestSettingsByDevice.set(normalizedDeviceId, record);
+  return record;
+}
 
 function parsePayload(buffer) {
   const raw = String(buffer || "").trim();
@@ -85,6 +125,9 @@ async function handleTopicMessage(topic, payload) {
     }
 
     if (/^canal\/[^/]+\/settings$/.test(topic)) {
+      const topicParts = String(topic).split("/");
+      const deviceId = topicParts[1];
+      rememberDeviceSettings(deviceId, parsed, topic);
       stats.accepted += 1;
       return;
     }
@@ -178,15 +221,23 @@ async function publishDeviceSettings(deviceId, payload) {
   const message = JSON.stringify(payload || {});
 
   return new Promise((resolve) => {
-    client.publish(topic, message, { qos: 1 }, (error) => {
+    client.publish(topic, message, { qos: 1, retain: true }, (error) => {
       if (error) {
         stats.lastError = error.message;
         return resolve({ ok: false, message: error.message, topic });
       }
 
+      rememberDeviceSettings(deviceId, payload, topic);
+
       return resolve({ ok: true, topic, payload });
     });
   });
+}
+
+function getDeviceSettings(deviceId) {
+  const normalized = String(deviceId || "").trim();
+  if (!normalized) return null;
+  return latestSettingsByDevice.get(normalized) || null;
 }
 
 function getStatus() {
@@ -207,5 +258,6 @@ module.exports = {
   start,
   stop,
   publishDeviceSettings,
+  getDeviceSettings,
   getStatus,
 };
