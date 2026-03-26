@@ -45,12 +45,15 @@ export default function CanalModuleCard({
 }: Props) {
   const status = reading?.status ?? "STOPPED";
   const cfg = STATUS_CONFIG[status] ?? STATUS_CONFIG.STOPPED;
-  const ts = reading?.timestamp
-    ? new Date(reading.timestamp).getTime()
-    : reading?.receivedAt
-      ? new Date(reading.receivedAt).getTime()
+  const receivedTs = reading?.receivedAt ? new Date(reading.receivedAt).getTime() : NaN;
+  const readingTs = reading?.timestamp ? new Date(reading.timestamp).getTime() : NaN;
+  const ts = Number.isFinite(receivedTs)
+    ? receivedTs
+    : Number.isFinite(readingTs)
+      ? readingTs
       : 0;
-  const deviceOnline = Number.isFinite(ts) && ts > 0 ? Date.now() - ts <= 180000 : false;
+  const deviceOnline = Number.isFinite(ts) && ts > 0;
+  const measuredAt = ts > 0 ? new Date(ts).toLocaleString() : "Waiting for reading";
   const href = isAdmin
     ? `/app/admin/canal/${canal.canalId}`
     : `/app/canal/${canal.canalId}`;
@@ -113,6 +116,9 @@ export default function CanalModuleCard({
                   Number(reading.waterLevel ?? 0)
                 ).toFixed(2)}{" "}
                 m
+              </p>
+              <p className="text-[11px] text-blue-800/90 mt-0.5">
+                Measured at: {measuredAt}
               </p>
             </div>
           )}

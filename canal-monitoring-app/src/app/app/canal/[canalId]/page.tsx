@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import { useParams } from "next/navigation";
 import { formatDistanceToNow } from "date-fns";
 import {
@@ -12,15 +12,22 @@ import {
   Activity,
   BarChart3,
 } from "lucide-react";
+import {
+  Area,
+  AreaChart,
+  CartesianGrid,
+  Line,
+  LineChart,
+  ReferenceLine,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { CanalInfo } from "@/types/canal";
-import LiveFlowChart from "@/components/dashboard/LiveFlowChart";
-import DailyAvgChart from "@/components/dashboard/DailyAvgChart";
-import WeeklyBarChart from "@/components/dashboard/WeeklyBarChart";
-import PredictionChart from "@/components/dashboard/PredictionChart";
 import { useCanalSSE } from "@/hooks/useCanalSSE";
 import dynamic from "next/dynamic";
 
@@ -51,6 +58,31 @@ interface MetricRowProps {
   value: string;
   icon: React.ElementType;
 }
+
+interface TimelinePoint {
+  timestamp: number;
+  label: string;
+  iso: string;
+  height: number;
+  flowRate: number;
+}
+
+function resolveReadingTime(reading: {
+  timestamp?: string | number | Date;
+  receivedAt?: string | number | Date;
+  createdAt?: string | number | Date;
+} | null): number | null {
+  if (!reading) return null;
+
+  const candidates = [reading.receivedAt, reading.timestamp, reading.createdAt];
+  for (const value of candidates) {
+    if (!value) continue;
+    const time = new Date(value).getTime();
+    if (Number.isFinite(time) && time > 0) return time;
+  }
+
+  return null;
+}
 function MetricRow({ label, value, icon: Icon }: MetricRowProps) {
   return (
     <div className="flex items-center justify-between py-1.5">
@@ -80,6 +112,7 @@ export default function UserCanalDashboard() {
     otaCheckIntervalMs: "",
     otaToken: "",
   });
+  const [timeline, setTimeline] = useState<TimelinePoint[]>([]);
 
   // SSE: live reading without polling
   const { reading, connected } = useCanalSSE(canalId);
@@ -102,28 +135,61 @@ export default function UserCanalDashboard() {
     fetchCanal();
   }, [fetchCanal]);
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <p className="text-muted-foreground animate-pulse">Loading…</p>
-      </div>
-    );
-  }
+  useEffect(() => {
+    if (!reading) return;
 
-  if (!canal) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <p className="text-muted-foreground">Canal not found.</p>
-      </div>
-    );
-  }
+    const time =
+      resolveReadingTime(
+        reading as {
+          timestamp?: string | number | Date;
+          receivedAt?: string | number | Date;
+          createdAt?: string | number | Date;
+        },
+      ) ?? Date.now();
+    const heightRaw = reading.height ?? reading.depth ?? Number(reading.waterLevel ?? 0);
+    const flowRaw = reading.flowRate ?? 0;
+
+    if (!Number.isFinite(heightRaw) || !Number.isFinite(flowRaw)) return;
+
+    const date = new Date(time);
+    const point: TimelinePoint = {
+      timestamp: time,
+      label: date.toLocaleTimeString([], {
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+      }),
+      iso: date.toISOString(),
+      height: +heightRaw.toFixed(3),
+      flowRate: +flowRaw.toFixed(3),
+    };
+
+    setTimeline((prev) => {
+      const last = prev[prev.length - 1];
+      if (
+        last &&
+        last.timestamp === point.timestamp &&
+        last.height === point.height &&
+        last.flowRate === point.flowRate
+      ) {
+        return prev;
+      }
+
+      const next = [...prev, point];
+      return next.length > 180 ? next.slice(-180) : next;
+    });
+  }, [reading]);
 
   const status = reading?.status ?? "STOPPED";
   const statusCfg = STATUS_CONFIG[status];
-  const lastUpdated = reading?.timestamp
-    ? formatDistanceToNow(new Date(reading.timestamp), { addSuffix: true })
+  const latestReadingTs =
+    resolveReadingTime(reading as { timestamp?: string; receivedAt?: string } | null) ??
+    timeline[timeline.length - 1]?.timestamp ??
+    null;
+  const lastUpdated = latestReadingTs
+    ? formatDistanceToNow(new Date(latestReadingTs), { addSuffix: true })
     : "Never";
-  const [lon, lat] = canal.location.coordinates;
+  const [lon, lat] = canal?.location.coordinates ?? [0, 0];
 
   // Health score: status 40% + battery 30% + signal 30%
   const statusScore =
@@ -135,12 +201,65 @@ export default function UserCanalDashboard() {
       ? Math.max(0, ((reading.signalStrength + 120) / 70) * 30)
       : 15;
   const healthScore = Math.round(statusScore + battScore + sigScore);
-  const ts = reading?.timestamp
-    ? new Date(reading.timestamp).getTime()
-    : reading?.receivedAt
-      ? new Date(reading.receivedAt).getTime()
-      : 0;
-  const deviceOnline = Number.isFinite(ts) && ts > 0 ? Date.now() - ts <= 180000 : false;
+  const deviceOnline =
+    connected ||
+    (latestReadingTs != null ? Date.now() - latestReadingTs <= 10 * 60 * 1000 : false);
+  const currentHeight =
+    reading?.height ?? reading?.depth ?? (reading?.waterLevel != null ? Number(reading.waterLevel) : null);
+  const heightMeasuredAt = latestReadingTs
+    ? new Date(latestReadingTs).toLocaleString()
+    : "Waiting for reading";
+
+  const predictionData = useMemo(() => {
+    if (timeline.length === 0) return [];
+
+    const past = timeline.slice(-12).map((p) => ({
+      timestamp: p.timestamp,
+      label: p.label,
+      actualHeight: p.height,
+      predictedHeight: undefined as number | undefined,
+    }));
+
+    if (past.length < 2) return past;
+
+    const deltas = past
+      .slice(1)
+      .map((p, i) => p.actualHeight - (past[i].actualHeight ?? 0));
+    const avgDelta = deltas.reduce((a, b) => a + b, 0) / deltas.length;
+
+    const intervals = past
+      .slice(1)
+      .map((p, i) => p.timestamp - past[i].timestamp)
+      .filter((ms) => Number.isFinite(ms) && ms > 0);
+    const avgIntervalMs =
+      intervals.length > 0
+        ? Math.round(intervals.reduce((a, b) => a + b, 0) / intervals.length)
+        : 60_000;
+
+    const latest = past[past.length - 1];
+    const bridge = {
+      ...latest,
+      predictedHeight: latest.actualHeight,
+    };
+
+    const future = Array.from({ length: 6 }, (_, i) => {
+      const ts = latest.timestamp + avgIntervalMs * (i + 1);
+      const val = Math.max(0, latest.actualHeight + avgDelta * (i + 1));
+      const d = new Date(ts);
+      return {
+        timestamp: ts,
+        label: d.toLocaleTimeString([], {
+          hour: "2-digit",
+          minute: "2-digit",
+          second: "2-digit",
+        }),
+        actualHeight: undefined,
+        predictedHeight: +val.toFixed(3),
+      };
+    });
+
+    return [...past.slice(0, -1), bridge, ...future];
+  }, [timeline]);
 
   const publishSettings = useCallback(
     async (extras?: Record<string, unknown>) => {
@@ -203,6 +322,22 @@ export default function UserCanalDashboard() {
     [canal, settingsForm],
   );
 
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <p className="text-muted-foreground animate-pulse">Loading…</p>
+      </div>
+    );
+  }
+
+  if (!canal) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <p className="text-muted-foreground">Canal not found.</p>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6 max-w-7xl mx-auto">
       {/* Page heading */}
@@ -237,6 +372,18 @@ export default function UserCanalDashboard() {
             </div>
           </CardHeader>
           <CardContent>
+            <div className="mb-3 rounded-md border border-blue-200/70 bg-blue-50/60 px-3 py-2.5">
+              <p className="text-[10px] uppercase tracking-wide text-blue-700 font-semibold">
+                Live Height
+              </p>
+              <p className="text-2xl font-bold text-blue-900 leading-tight">
+                {currentHeight != null ? `${currentHeight.toFixed(2)} m` : "—"}
+              </p>
+              <p className="text-[11px] text-blue-800/90 mt-0.5">
+                Measured at: {heightMeasuredAt}
+              </p>
+            </div>
+
             <div className="divide-y divide-border">
               <MetricRow
                 label="Water Height"
@@ -327,6 +474,44 @@ export default function UserCanalDashboard() {
               <div>
                 <span className="font-medium text-foreground">Health</span>
                 <p>{healthScore}/100</p>
+              </div>
+            </div>
+
+            <Separator className="my-3" />
+            <div>
+              <p className="text-sm font-medium text-foreground mb-2">
+                Recent Live Readings
+              </p>
+              <div className="rounded-md border overflow-x-auto">
+                <table className="w-full text-xs">
+                  <thead className="bg-muted/40 text-muted-foreground">
+                    <tr>
+                      <th className="text-left px-3 py-2 font-medium">Timestamp</th>
+                      <th className="text-right px-3 py-2 font-medium">Height (m)</th>
+                      <th className="text-right px-3 py-2 font-medium">Flow Rate (m³/s)</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {timeline.length === 0 ? (
+                      <tr>
+                        <td className="px-3 py-3 text-muted-foreground" colSpan={3}>
+                          Waiting for live readings...
+                        </td>
+                      </tr>
+                    ) : (
+                      timeline
+                        .slice(-10)
+                        .reverse()
+                        .map((row) => (
+                          <tr key={`${row.timestamp}-${row.flowRate}`} className="border-t">
+                            <td className="px-3 py-2">{new Date(row.timestamp).toLocaleString()}</td>
+                            <td className="px-3 py-2 text-right font-mono">{row.height.toFixed(3)}</td>
+                            <td className="px-3 py-2 text-right font-mono">{row.flowRate.toFixed(3)}</td>
+                          </tr>
+                        ))
+                    )}
+                  </tbody>
+                </table>
               </div>
             </div>
           </CardContent>
@@ -456,31 +641,147 @@ export default function UserCanalDashboard() {
         <CardHeader>
           <div className="flex items-center gap-2">
             <BarChart3 className="w-4 h-4 text-primary" />
-            <CardTitle className="text-base">Flow Rate Analysis</CardTitle>
+            <CardTitle className="text-base">Water Trend Analysis</CardTitle>
           </div>
         </CardHeader>
         <CardContent>
-          <Tabs defaultValue="live">
-            <TabsList className="mb-4">
-              <TabsTrigger value="live">Live</TabsTrigger>
-              <TabsTrigger value="24h">24h</TabsTrigger>
-              <TabsTrigger value="weekly">Weekly</TabsTrigger>
-              <TabsTrigger value="prediction">Prediction</TabsTrigger>
-            </TabsList>
+          {timeline.length === 0 ? (
+            <div className="h-64 flex items-center justify-center text-sm text-muted-foreground">
+              Waiting for live data to render charts...
+            </div>
+          ) : (
+            <div className="space-y-8">
+              <div>
+                <h3 className="text-sm font-semibold mb-2">Height vs Time</h3>
+                <ResponsiveContainer width="100%" height={260}>
+                  <AreaChart data={timeline}>
+                    <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
+                    <XAxis dataKey="label" tick={{ fontSize: 11 }} interval="preserveStartEnd" />
+                    <YAxis
+                      domain={[0, 3]}
+                      tick={{ fontSize: 11 }}
+                      label={{
+                        value: "Height (m)",
+                        angle: -90,
+                        position: "insideLeft",
+                        style: { fontSize: 11 },
+                      }}
+                    />
+                    <Tooltip
+                      formatter={(value: number) => [value.toFixed(3), "Height (m)"]}
+                      labelFormatter={(_, payload) => {
+                        if (payload && payload[0]?.payload?.timestamp) {
+                          return new Date(payload[0].payload.timestamp).toLocaleString();
+                        }
+                        return "";
+                      }}
+                    />
+                    <Area
+                      type="monotone"
+                      dataKey="height"
+                      stroke="hsl(var(--primary))"
+                      fill="hsl(var(--primary) / 0.2)"
+                      strokeWidth={2}
+                      name="Height"
+                    />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
 
-            <TabsContent value="live">
-              <LiveFlowChart canalId={canalId} />
-            </TabsContent>
-            <TabsContent value="24h">
-              <DailyAvgChart canalId={canalId} interval="hour" hours={24} />
-            </TabsContent>
-            <TabsContent value="weekly">
-              <WeeklyBarChart canalId={canalId} />
-            </TabsContent>
-            <TabsContent value="prediction">
-              <PredictionChart canalId={canalId} />
-            </TabsContent>
-          </Tabs>
+              <div>
+                <h3 className="text-sm font-semibold mb-2">Flow Rate vs Time</h3>
+                <ResponsiveContainer width="100%" height={260}>
+                  <LineChart data={timeline}>
+                    <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
+                    <XAxis dataKey="label" tick={{ fontSize: 11 }} interval="preserveStartEnd" />
+                    <YAxis
+                      tick={{ fontSize: 11 }}
+                      label={{
+                        value: "Flow Rate (m³/s)",
+                        angle: -90,
+                        position: "insideLeft",
+                        style: { fontSize: 11 },
+                      }}
+                    />
+                    <Tooltip
+                      formatter={(value: number) => [value.toFixed(3), "Flow Rate (m³/s)"]}
+                      labelFormatter={(_, payload) => {
+                        if (payload && payload[0]?.payload?.timestamp) {
+                          return new Date(payload[0].payload.timestamp).toLocaleString();
+                        }
+                        return "";
+                      }}
+                    />
+                    <Line
+                      type="monotone"
+                      dataKey="flowRate"
+                      stroke="#0284c7"
+                      strokeWidth={2}
+                      dot={false}
+                      name="Flow Rate"
+                    />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+
+              <div>
+                <h3 className="text-sm font-semibold mb-2">Predicted Height Rise</h3>
+                <ResponsiveContainer width="100%" height={260}>
+                  <LineChart data={predictionData}>
+                    <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
+                    <XAxis dataKey="label" tick={{ fontSize: 11 }} interval="preserveStartEnd" />
+                    <YAxis
+                      domain={[0, 3]}
+                      tick={{ fontSize: 11 }}
+                      label={{
+                        value: "Height (m)",
+                        angle: -90,
+                        position: "insideLeft",
+                        style: { fontSize: 11 },
+                      }}
+                    />
+                    <Tooltip
+                      formatter={(value: number, name: string) => [
+                        value.toFixed(3),
+                        name === "predictedHeight" ? "Predicted Height (m)" : "Actual Height (m)",
+                      ]}
+                      labelFormatter={(_, payload) => {
+                        if (payload && payload[0]?.payload?.timestamp) {
+                          return new Date(payload[0].payload.timestamp).toLocaleString();
+                        }
+                        return "";
+                      }}
+                    />
+                    <ReferenceLine
+                      x={predictionData.find((d) => d.predictedHeight != null && d.actualHeight != null)?.label}
+                      stroke="#94a3b8"
+                      strokeDasharray="4 4"
+                      label="Now"
+                    />
+                    <Line
+                      type="monotone"
+                      dataKey="actualHeight"
+                      stroke="hsl(var(--primary))"
+                      strokeWidth={2}
+                      dot={false}
+                      connectNulls={false}
+                      name="actualHeight"
+                    />
+                    <Line
+                      type="monotone"
+                      dataKey="predictedHeight"
+                      stroke="#f59e0b"
+                      strokeWidth={2}
+                      strokeDasharray="6 3"
+                      dot={false}
+                      connectNulls={false}
+                      name="predictedHeight"
+                    />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>
