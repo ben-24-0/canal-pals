@@ -58,6 +58,8 @@ interface TimelinePoint {
   flowRate: number;
 }
 
+const DEFAULT_VISIBLE_READINGS = 10;
+
 function resolveReadingTime(
   reading: {
     timestamp?: string | number | Date;
@@ -91,6 +93,7 @@ export default function AdminCanalDashboard() {
     return d.toISOString().slice(0, 10);
   });
   const [toDate, setToDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [showAllReadings, setShowAllReadings] = useState(false);
 
   // SSE: live reading — no polling needed
   const { reading, connected } = useCanalSSE(canalId);
@@ -388,6 +391,17 @@ export default function AdminCanalDashboard() {
     });
   }, [timeline, rangeStartTs, rangeEndTs]);
 
+  useEffect(() => {
+    setShowAllReadings(false);
+  }, [fromDate, toDate]);
+
+  const tableRows = useMemo(() => {
+    const ordered = [...filteredTimeline].reverse();
+    return showAllReadings
+      ? ordered
+      : ordered.slice(0, DEFAULT_VISIBLE_READINGS);
+  }, [filteredTimeline, showAllReadings]);
+
   const chartHeightDomain = useMemo(() => {
     if (filteredTimeline.length === 0) return [0, 1] as const;
     const values = filteredTimeline.map((p) => p.height);
@@ -476,9 +490,6 @@ export default function AdminCanalDashboard() {
     reading?.height ??
     reading?.depth ??
     (reading?.waterLevel != null ? Number(reading.waterLevel) : null);
-  const readingTimestampLabel = lastReadingTime
-    ? new Date(lastReadingTime).toLocaleString()
-    : "Waiting for reading";
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto">
@@ -524,9 +535,6 @@ export default function AdminCanalDashboard() {
               <div className="flex items-center justify-between gap-3">
                 <span className="text-sm text-muted-foreground">
                   Water Height
-                </span>
-                <span className="text-xs text-muted-foreground text-right">
-                  Last received: {readingTimestampLabel}
                 </span>
               </div>
               <p className="text-xs text-muted-foreground mt-2">
@@ -662,8 +670,8 @@ export default function AdminCanalDashboard() {
         <CardHeader>
           <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
             <CardTitle className="text-base">Recent Readings Table</CardTitle>
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
-              <div className="space-y-1">
+            <div className="grid grid-cols-1 gap-2 sm:flex sm:items-end sm:gap-2 w-full md:w-auto">
+              <div className="space-y-1 w-full sm:w-auto">
                 <Label htmlFor="fromDate" className="text-xs text-muted-foreground">
                   From
                 </Label>
@@ -672,10 +680,10 @@ export default function AdminCanalDashboard() {
                   type="date"
                   value={fromDate}
                   onChange={(e) => setFromDate(e.target.value)}
-                  className="h-9"
+                  className="h-9 w-full sm:w-auto"
                 />
               </div>
-              <div className="space-y-1">
+              <div className="space-y-1 w-full sm:w-auto">
                 <Label htmlFor="toDate" className="text-xs text-muted-foreground">
                   To
                 </Label>
@@ -684,13 +692,13 @@ export default function AdminCanalDashboard() {
                   type="date"
                   value={toDate}
                   onChange={(e) => setToDate(e.target.value)}
-                  className="h-9"
+                  className="h-9 w-full sm:w-auto"
                 />
               </div>
               <Button
                 variant="outline"
                 onClick={exportTimelineCsv}
-                className="h-9"
+                className="h-9 w-full sm:w-auto"
               >
                 <Download className="w-4 h-4 mr-1.5" />
                 Export CSV
@@ -705,7 +713,7 @@ export default function AdminCanalDashboard() {
             </div>
           )}
           <div className="rounded-md border overflow-x-auto">
-            <table className="w-full text-sm">
+            <table className="w-full min-w-140 text-xs sm:text-sm">
               <thead className="bg-muted/40 text-muted-foreground">
                 <tr>
                   <th className="text-left px-3 py-2 font-medium">Timestamp</th>
@@ -731,10 +739,7 @@ export default function AdminCanalDashboard() {
                     </td>
                   </tr>
                 ) : (
-                  filteredTimeline
-                    .slice(-20)
-                    .reverse()
-                    .map((row) => (
+                  tableRows.map((row) => (
                       <tr
                         key={`${row.timestamp}-${row.flowRate}`}
                         className="border-t"
@@ -743,7 +748,7 @@ export default function AdminCanalDashboard() {
                           {new Date(row.timestamp).toLocaleString()}
                         </td>
                         <td className="px-3 py-2 text-right font-mono">
-                          {row.height.toFixed(3)}
+                          {row.height.toFixed(2)}
                         </td>
                         <td className="px-3 py-2 text-right font-mono">
                           {row.flowRate.toFixed(3)}
@@ -754,6 +759,20 @@ export default function AdminCanalDashboard() {
               </tbody>
             </table>
           </div>
+          {filteredTimeline.length > DEFAULT_VISIBLE_READINGS && (
+            <div className="mt-3 flex items-center justify-between gap-3">
+              <p className="text-xs text-muted-foreground">
+                Showing {tableRows.length} of {filteredTimeline.length} readings
+              </p>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setShowAllReadings((prev) => !prev)}
+              >
+                {showAllReadings ? "Show less" : "Show more"}
+              </Button>
+            </div>
+          )}
         </CardContent>
       </Card>
 
