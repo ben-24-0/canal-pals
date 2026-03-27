@@ -333,18 +333,37 @@ export default function AdminCanalDashboard() {
     setLastForceReadAt(now);
     setForceReadBusy(true);
 
-    const sent = await publishDeviceSettings(
-      { forceReadNow: true },
-      "Measure command sent.",
-    );
+    try {
+      const res = await fetch(
+        `${BACKEND_URL}/api/esp32/measure/${encodeURIComponent(canalId)}`,
+        { method: "POST" },
+      );
+      const body = await res.json().catch(() => ({}));
 
-    if (!sent) {
+      if (!res.ok) {
+        setDeviceSettingsMsg(body?.message || "Failed to trigger measure.");
+        return;
+      }
+
+      setDeviceSettingsMsg(body?.message || "Measure completed.");
+
+      fetchCanal();
+      fetchReadings(fromDate, toDate);
+      fetchDeviceSettings();
+    } catch {
+      setDeviceSettingsMsg("Failed to trigger measure.");
+    } finally {
       setForceReadBusy(false);
-      return;
     }
-
-    setForceReadBusy(false);
-  }, [lastForceReadAt, publishDeviceSettings]);
+  }, [
+    lastForceReadAt,
+    canalId,
+    fetchCanal,
+    fetchReadings,
+    fetchDeviceSettings,
+    fromDate,
+    toDate,
+  ]);
 
   useEffect(() => {
     fetchCanal();
@@ -1202,7 +1221,7 @@ export default function AdminCanalDashboard() {
                 {sendingDeviceSettings ? "Publishing..." : "Apply Interval"}
               </Button>
               <span className="text-xs text-muted-foreground">
-                Topic: canal/{canal.esp32DeviceId ?? "<device-id>"}/settings (retained)
+                Topic: canal/{canal.esp32DeviceId ?? "<device-id>"}/settings
               </span>
             </div>
           </div>

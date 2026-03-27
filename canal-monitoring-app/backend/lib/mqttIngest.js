@@ -289,7 +289,7 @@ async function publishDeviceSettings(deviceId, payload) {
   const message = JSON.stringify(payload || {});
 
   return new Promise((resolve) => {
-    client.publish(topic, message, { qos: 1, retain: true }, (error) => {
+    client.publish(topic, message, { qos: 1, retain: false }, (error) => {
       if (error) {
         stats.lastError = error.message;
         return resolve({ ok: false, message: error.message, topic });
