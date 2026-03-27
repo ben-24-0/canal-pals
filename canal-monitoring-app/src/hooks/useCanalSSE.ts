@@ -18,7 +18,7 @@ import type { CanalReading } from "@/types/canal";
 const BACKEND_URL =
   process.env.NEXT_PUBLIC_BACKEND_URL ??
   process.env.NEXT_PUBLIC_API_URL ??
-  "https://canal-pals.onrender.com";
+  "http://localhost:3001";
 
 export function useCanalSSE(canalId: string): {
   reading: CanalReading | null;

@@ -22,7 +22,7 @@ import { Badge } from "@/components/ui/badge";
 import type { CanalInfo } from "@/types/canal";
 
 const BACKEND_URL =
-  process.env.NEXT_PUBLIC_BACKEND_URL || "https://canal-pals.onrender.com";
+  process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:3001";
 
 export default function CanalModulesHub() {
   const { data: session } = useSession();

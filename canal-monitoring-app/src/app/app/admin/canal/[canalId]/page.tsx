@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import { useParams, useRouter } from "next/navigation";
 import {
   Gauge,
@@ -12,7 +12,7 @@ import {
   Trash2,
   AlertTriangle,
   ChevronDown,
-  Clock,
+  Download,
 } from "lucide-react";
 import {
   Area,
@@ -20,7 +20,6 @@ import {
   CartesianGrid,
   Line,
   LineChart,
-  ReferenceLine,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -41,7 +40,7 @@ const MiniMap = dynamic(() => import("@/components/map/MiniMap"), {
 });
 
 const BACKEND_URL =
-  process.env.NEXT_PUBLIC_BACKEND_URL ?? "https://canal-pals.onrender.com";
+  process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://localhost:3001";
 
 function Row({ label, value }: { label: string; value: React.ReactNode }) {
   return (
@@ -68,7 +67,7 @@ function resolveReadingTime(
 ): number | null {
   if (!reading) return null;
 
-  const candidates = [reading.receivedAt, reading.timestamp, reading.createdAt];
+  const candidates = [reading.timestamp, reading.receivedAt, reading.createdAt];
   for (const value of candidates) {
     if (!value) continue;
     const time = new Date(value).getTime();
@@ -85,6 +84,13 @@ export default function AdminCanalDashboard() {
 
   const [canal, setCanal] = useState<CanalInfo | null>(null);
   const [loading, setLoading] = useState(true);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState<string | null>(null);
+  const [fromDate, setFromDate] = useState(() => {
+    const d = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+    return d.toISOString().slice(0, 10);
+  });
+  const [toDate, setToDate] = useState(() => new Date().toISOString().slice(0, 10));
 
   // SSE: live reading — no polling needed
   const { reading, connected } = useCanalSSE(canalId);
@@ -106,6 +112,91 @@ export default function AdminCanalDashboard() {
   useEffect(() => {
     fetchCanal();
   }, [fetchCanal]);
+
+  const fetchReadings = useCallback(
+    async (startDate?: string, endDate?: string) => {
+      setHistoryLoading(true);
+      setHistoryError(null);
+
+      try {
+        const query = new URLSearchParams({
+          limit: "2000",
+          page: "1",
+        });
+
+        if (startDate) {
+          query.set("startDate", `${startDate}T00:00:00.000Z`);
+        }
+        if (endDate) {
+          query.set("endDate", `${endDate}T23:59:59.999Z`);
+        }
+
+        const res = await fetch(
+          `${BACKEND_URL}/api/canals/${encodeURIComponent(canalId)}/readings?${query.toString()}`,
+        );
+
+        if (!res.ok) {
+          throw new Error(`Failed to load readings (HTTP ${res.status})`);
+        }
+
+        const json = (await res.json()) as {
+          readings?: Array<{
+            timestamp?: string | number | Date;
+            receivedAt?: string | number | Date;
+            createdAt?: string | number | Date;
+            height?: number;
+            depth?: number;
+            waterLevel?: number;
+            flowRate?: number;
+          }>;
+        };
+
+        const points = (json.readings ?? [])
+          .map((r) => {
+            const ts = resolveReadingTime(r);
+            const heightRaw = r.height ?? r.depth ?? Number(r.waterLevel ?? NaN);
+            const flowRaw = Number(r.flowRate ?? NaN);
+
+            if (
+              ts == null ||
+              !Number.isFinite(ts) ||
+              !Number.isFinite(heightRaw) ||
+              !Number.isFinite(flowRaw)
+            ) {
+              return null;
+            }
+
+            const d = new Date(ts);
+            return {
+              timestamp: ts,
+              label: d.toLocaleTimeString([], {
+                hour: "2-digit",
+                minute: "2-digit",
+                second: "2-digit",
+              }),
+              height: +heightRaw.toFixed(3),
+              flowRate: +flowRaw.toFixed(3),
+            } satisfies TimelinePoint;
+          })
+          .filter((point): point is TimelinePoint => point !== null)
+          .sort((a, b) => a.timestamp - b.timestamp);
+
+        setTimeline(points);
+      } catch (err) {
+        setHistoryError(
+          err instanceof Error ? err.message : "Failed to load readings",
+        );
+      } finally {
+        setHistoryLoading(false);
+      }
+    },
+    [canalId],
+  );
+
+  useEffect(() => {
+    if (!canalId) return;
+    fetchReadings(fromDate, toDate);
+  }, [canalId, fromDate, toDate, fetchReadings]);
 
   useEffect(() => {
     if (!reading) return;
@@ -284,6 +375,64 @@ export default function AdminCanalDashboard() {
     }
   };
 
+  const rangeStartTs = fromDate
+    ? new Date(`${fromDate}T00:00:00.000Z`).getTime()
+    : null;
+  const rangeEndTs = toDate ? new Date(`${toDate}T23:59:59.999Z`).getTime() : null;
+
+  const filteredTimeline = useMemo(() => {
+    return timeline.filter((point) => {
+      if (rangeStartTs != null && point.timestamp < rangeStartTs) return false;
+      if (rangeEndTs != null && point.timestamp > rangeEndTs) return false;
+      return true;
+    });
+  }, [timeline, rangeStartTs, rangeEndTs]);
+
+  const chartHeightDomain = useMemo(() => {
+    if (filteredTimeline.length === 0) return [0, 1] as const;
+    const values = filteredTimeline.map((p) => p.height);
+    const min = Math.min(...values);
+    const max = Math.max(...values);
+    const pad = Math.max((max - min) * 0.1, 0.05);
+    return [Math.max(0, min - pad), max + pad] as const;
+  }, [filteredTimeline]);
+
+  const chartFlowDomain = useMemo(() => {
+    if (filteredTimeline.length === 0) return [0, 1] as const;
+    const values = filteredTimeline.map((p) => p.flowRate);
+    const min = Math.min(...values);
+    const max = Math.max(...values);
+    const pad = Math.max((max - min) * 0.1, 0.05);
+    return [Math.max(0, min - pad), max + pad] as const;
+  }, [filteredTimeline]);
+
+  const exportTimelineCsv = () => {
+    if (filteredTimeline.length === 0) {
+      window.alert("No readings available for the selected date range.");
+      return;
+    }
+
+    const rows = [
+      ["Timestamp", "Height (m)", "Flow Rate (m3/s)"],
+      ...filteredTimeline.map((row) => [
+        new Date(row.timestamp).toISOString(),
+        row.height.toFixed(3),
+        row.flowRate.toFixed(3),
+      ]),
+    ];
+
+    const csv = rows.map((row) => row.join(",")).join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${canal?.canalId ?? canalId}-readings-${fromDate || "all"}-to-${toDate || "all"}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -310,10 +459,16 @@ export default function AdminCanalDashboard() {
     null;
   const isOffline = !connected && !lastReadingTime;
 
-  const getTimeSinceReading = () => {
-    if (!lastReadingTime) return "—";
-    return new Date(lastReadingTime).toLocaleString();
-  };
+  const measuredTimestamp = resolveReadingTime(
+    reading as {
+      timestamp?: string | number | Date;
+      receivedAt?: string | number | Date;
+      createdAt?: string | number | Date;
+    } | null,
+  );
+  const measuredTimestampLabel = measuredTimestamp
+    ? new Date(measuredTimestamp).toLocaleString()
+    : "Waiting for reading";
 
   const [lon, lat] = canal.location.coordinates;
   const mp = canal.manningsParams;
@@ -324,63 +479,6 @@ export default function AdminCanalDashboard() {
   const readingTimestampLabel = lastReadingTime
     ? new Date(lastReadingTime).toLocaleString()
     : "Waiting for reading";
-
-  const predictionData = (() => {
-    if (timeline.length === 0)
-      return [] as Array<{
-        timestamp: number;
-        label: string;
-        actualHeight?: number;
-        predictedHeight?: number;
-      }>;
-
-    const past = timeline.slice(-12).map((p) => ({
-      timestamp: p.timestamp,
-      label: p.label,
-      actualHeight: p.height,
-      predictedHeight: undefined as number | undefined,
-    }));
-
-    if (past.length < 2) return past;
-
-    const deltas = past
-      .slice(1)
-      .map((p, i) => p.actualHeight - (past[i].actualHeight ?? 0));
-    const avgDelta = deltas.reduce((a, b) => a + b, 0) / deltas.length;
-
-    const intervals = past
-      .slice(1)
-      .map((p, i) => p.timestamp - past[i].timestamp)
-      .filter((ms) => Number.isFinite(ms) && ms > 0);
-    const avgIntervalMs =
-      intervals.length > 0
-        ? Math.round(intervals.reduce((a, b) => a + b, 0) / intervals.length)
-        : 60_000;
-
-    const latest = past[past.length - 1];
-    const bridge = {
-      ...latest,
-      predictedHeight: latest.actualHeight,
-    };
-
-    const future = Array.from({ length: 6 }, (_, i) => {
-      const ts = latest.timestamp + avgIntervalMs * (i + 1);
-      const val = Math.max(0, latest.actualHeight + avgDelta * (i + 1));
-      const d = new Date(ts);
-      return {
-        timestamp: ts,
-        label: d.toLocaleTimeString([], {
-          hour: "2-digit",
-          minute: "2-digit",
-          second: "2-digit",
-        }),
-        actualHeight: undefined,
-        predictedHeight: +val.toFixed(3),
-      };
-    });
-
-    return [...past.slice(0, -1), bridge, ...future];
-  })();
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto">
@@ -428,19 +526,18 @@ export default function AdminCanalDashboard() {
                   Water Height
                 </span>
                 <span className="text-xs text-muted-foreground text-right">
-                  {readingTimestampLabel}
+                  Last received: {readingTimestampLabel}
                 </span>
               </div>
+              <p className="text-xs text-muted-foreground mt-2">
+                Measured at: {measuredTimestampLabel}
+              </p>
               <div className="flex items-baseline gap-1 mt-2">
                 <span className="text-4xl font-bold text-blue-600 dark:text-blue-400">
                   {currentHeight != null ? currentHeight.toFixed(2) : "—"}
                 </span>
                 <span className="text-lg text-muted-foreground">m</span>
               </div>
-              <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
-                <Clock className="w-3 h-3" /> Last reading:{" "}
-                {getTimeSinceReading()}
-              </p>
             </div>
 
             {/* Secondary metrics: Velocity & Flow Rate */}
@@ -563,9 +660,50 @@ export default function AdminCanalDashboard() {
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Recent Readings Table</CardTitle>
+          <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+            <CardTitle className="text-base">Recent Readings Table</CardTitle>
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+              <div className="space-y-1">
+                <Label htmlFor="fromDate" className="text-xs text-muted-foreground">
+                  From
+                </Label>
+                <Input
+                  id="fromDate"
+                  type="date"
+                  value={fromDate}
+                  onChange={(e) => setFromDate(e.target.value)}
+                  className="h-9"
+                />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="toDate" className="text-xs text-muted-foreground">
+                  To
+                </Label>
+                <Input
+                  id="toDate"
+                  type="date"
+                  value={toDate}
+                  onChange={(e) => setToDate(e.target.value)}
+                  className="h-9"
+                />
+              </div>
+              <Button
+                variant="outline"
+                onClick={exportTimelineCsv}
+                className="h-9"
+              >
+                <Download className="w-4 h-4 mr-1.5" />
+                Export CSV
+              </Button>
+            </div>
+          </div>
         </CardHeader>
         <CardContent>
+          {historyError && (
+            <div className="mb-3 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+              {historyError}
+            </div>
+          )}
           <div className="rounded-md border overflow-x-auto">
             <table className="w-full text-sm">
               <thead className="bg-muted/40 text-muted-foreground">
@@ -580,14 +718,20 @@ export default function AdminCanalDashboard() {
                 </tr>
               </thead>
               <tbody>
-                {timeline.length === 0 ? (
+                {historyLoading && filteredTimeline.length === 0 ? (
                   <tr>
                     <td className="px-3 py-3 text-muted-foreground" colSpan={3}>
-                      Waiting for live readings...
+                      Loading readings from database...
+                    </td>
+                  </tr>
+                ) : filteredTimeline.length === 0 ? (
+                  <tr>
+                    <td className="px-3 py-3 text-muted-foreground" colSpan={3}>
+                      No readings found for the selected date range.
                     </td>
                   </tr>
                 ) : (
-                  timeline
+                  filteredTimeline
                     .slice(-20)
                     .reverse()
                     .map((row) => (
@@ -1035,9 +1179,9 @@ export default function AdminCanalDashboard() {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          {timeline.length === 0 ? (
+          {filteredTimeline.length === 0 ? (
             <div className="h-64 flex items-center justify-center text-sm text-muted-foreground">
-              Waiting for live data to render charts...
+              No chart data for the selected date range.
             </div>
           ) : (
             <div className="space-y-8">
@@ -1046,13 +1190,22 @@ export default function AdminCanalDashboard() {
                   Height vs Timestamp
                 </h3>
                 <ResponsiveContainer width="100%" height={260}>
-                  <AreaChart data={timeline}>
+                  <AreaChart data={filteredTimeline}>
                     <CartesianGrid
                       strokeDasharray="3 3"
                       className="stroke-border"
                     />
                     <XAxis
-                      dataKey="label"
+                      dataKey="timestamp"
+                      type="number"
+                      scale="time"
+                      domain={["dataMin", "dataMax"]}
+                      tickFormatter={(value) =>
+                        new Date(value).toLocaleTimeString([], {
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })
+                      }
                       tick={{ fontSize: 11 }}
                       interval="preserveStartEnd"
                     />
@@ -1064,21 +1217,14 @@ export default function AdminCanalDashboard() {
                         position: "insideLeft",
                         style: { fontSize: 11 },
                       }}
-                      domain={[0, 3]}
+                      domain={chartHeightDomain}
                     />
                     <Tooltip
-                      formatter={(value: number) => [
-                        value.toFixed(3),
+                      formatter={(value: number | string | undefined) => [
+                        Number(value ?? 0).toFixed(3),
                         "Height (m)",
                       ]}
-                      labelFormatter={(_, payload) => {
-                        if (payload && payload[0]?.payload?.timestamp) {
-                          return new Date(
-                            payload[0].payload.timestamp,
-                          ).toLocaleString();
-                        }
-                        return "";
-                      }}
+                      labelFormatter={(value) => new Date(Number(value)).toLocaleString()}
                     />
                     <Area
                       type="monotone"
@@ -1096,13 +1242,22 @@ export default function AdminCanalDashboard() {
                   Flow Rate vs Timestamp
                 </h3>
                 <ResponsiveContainer width="100%" height={260}>
-                  <LineChart data={timeline}>
+                  <LineChart data={filteredTimeline}>
                     <CartesianGrid
                       strokeDasharray="3 3"
                       className="stroke-border"
                     />
                     <XAxis
-                      dataKey="label"
+                      dataKey="timestamp"
+                      type="number"
+                      scale="time"
+                      domain={["dataMin", "dataMax"]}
+                      tickFormatter={(value) =>
+                        new Date(value).toLocaleTimeString([], {
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })
+                      }
                       tick={{ fontSize: 11 }}
                       interval="preserveStartEnd"
                     />
@@ -1114,20 +1269,14 @@ export default function AdminCanalDashboard() {
                         position: "insideLeft",
                         style: { fontSize: 11 },
                       }}
+                      domain={chartFlowDomain}
                     />
                     <Tooltip
-                      formatter={(value: number) => [
-                        value.toFixed(3),
+                      formatter={(value: number | string | undefined) => [
+                        Number(value ?? 0).toFixed(3),
                         "Flow Rate (m³/s)",
                       ]}
-                      labelFormatter={(_, payload) => {
-                        if (payload && payload[0]?.payload?.timestamp) {
-                          return new Date(
-                            payload[0].payload.timestamp,
-                          ).toLocaleString();
-                        }
-                        return "";
-                      }}
+                      labelFormatter={(value) => new Date(Number(value)).toLocaleString()}
                     />
                     <Line
                       type="monotone"
@@ -1140,78 +1289,6 @@ export default function AdminCanalDashboard() {
                 </ResponsiveContainer>
               </div>
 
-              <div>
-                <h3 className="text-sm font-semibold mb-2">
-                  Predicted Height Rise
-                </h3>
-                <ResponsiveContainer width="100%" height={260}>
-                  <LineChart data={predictionData}>
-                    <CartesianGrid
-                      strokeDasharray="3 3"
-                      className="stroke-border"
-                    />
-                    <XAxis
-                      dataKey="label"
-                      tick={{ fontSize: 11 }}
-                      interval="preserveStartEnd"
-                    />
-                    <YAxis
-                      tick={{ fontSize: 11 }}
-                      label={{
-                        value: "Height (m)",
-                        angle: -90,
-                        position: "insideLeft",
-                        style: { fontSize: 11 },
-                      }}
-                      domain={[0, 3]}
-                    />
-                    <Tooltip
-                      formatter={(value: number, name: string) => [
-                        value.toFixed(3),
-                        name === "predictedHeight"
-                          ? "Predicted Height (m)"
-                          : "Actual Height (m)",
-                      ]}
-                      labelFormatter={(_, payload) => {
-                        if (payload && payload[0]?.payload?.timestamp) {
-                          return new Date(
-                            payload[0].payload.timestamp,
-                          ).toLocaleString();
-                        }
-                        return "";
-                      }}
-                    />
-                    <ReferenceLine
-                      x={
-                        predictionData.find(
-                          (d) =>
-                            d.predictedHeight != null && d.actualHeight != null,
-                        )?.label
-                      }
-                      stroke="#94a3b8"
-                      strokeDasharray="4 4"
-                      label="Now"
-                    />
-                    <Line
-                      type="monotone"
-                      dataKey="actualHeight"
-                      stroke="hsl(var(--primary))"
-                      strokeWidth={2}
-                      dot={false}
-                      connectNulls={false}
-                    />
-                    <Line
-                      type="monotone"
-                      dataKey="predictedHeight"
-                      stroke="#f59e0b"
-                      strokeWidth={2}
-                      strokeDasharray="6 3"
-                      dot={false}
-                      connectNulls={false}
-                    />
-                  </LineChart>
-                </ResponsiveContainer>
-              </div>
             </div>
           )}
         </CardContent>

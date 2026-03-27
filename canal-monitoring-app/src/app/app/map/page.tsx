@@ -20,7 +20,7 @@ import { useCanalGroups } from "@/hooks/useCanalGroups";
 import { osmStyle } from "@/lib/mapConfig";
 
 const BACKEND_URL =
-  process.env.NEXT_PUBLIC_BACKEND_URL ?? "https://canal-pals.onrender.com";
+  process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://localhost:3001";
 
 const STATUS_COLOR: Record<string, string> = {
   FLOWING: "#22c55e",

@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 
 const BACKEND_URL =
-  process.env.NEXT_PUBLIC_BACKEND_URL || "https://canal-pals.onrender.com";
+  process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:3001";
 const STORAGE_KEY = "canal-pinned";
 
 /**

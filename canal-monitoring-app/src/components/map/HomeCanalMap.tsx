@@ -11,7 +11,7 @@ import {
 import "maplibre-gl/dist/maplibre-gl.css";
 import canals from "../../data/canals";
 const API_BASE =
-  process.env.NEXT_PUBLIC_API_URL || "https://canal-pals.onrender.com";
+  process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
 import type { FeatureCollection, Geometry, GeoJsonProperties } from "geojson";
 import { osmStyle } from "../../lib/mapConfig";
 

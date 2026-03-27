@@ -17,19 +17,29 @@ export default function LoginPage() {
     setError("");
     setLoading(true);
 
-    const result = await signIn("credentials", {
-      email,
-      password,
-      redirect: false,
-    });
+    try {
+      const result = await signIn("credentials", {
+        email,
+        password,
+        redirect: false,
+        callbackUrl: "/app",
+      });
 
-    setLoading(false);
+      if (result?.error) {
+        setError("Invalid email or password. Please try again.");
+        return;
+      }
 
-    if (result?.error) {
-      setError("Invalid email or password. Please try again.");
-    } else {
-      // Successful login — always go to /app
-      router.push("/app");
+      if (!result?.ok) {
+        setError("Unable to sign in right now. Please try again.");
+        return;
+      }
+
+      router.push(result.url ?? "/app");
+    } catch {
+      setError("Sign-in failed due to a network or server issue.");
+    } finally {
+      setLoading(false);
     }
   }
 

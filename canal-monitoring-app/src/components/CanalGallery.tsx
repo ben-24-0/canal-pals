@@ -6,7 +6,7 @@ import { MapPin, Zap, ArrowRight } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 
 const BACKEND_URL =
-  process.env.NEXT_PUBLIC_BACKEND_URL || "https://canal-pals.onrender.com";
+  process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:3001";
 
 interface CanalPreview {
   canalId: string;

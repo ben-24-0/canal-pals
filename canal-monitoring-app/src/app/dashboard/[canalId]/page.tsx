@@ -19,7 +19,7 @@ import React, { useState, useEffect, useRef } from "react";
 import { useParams } from "next/navigation";
 import Footer from "../../../components/Footer";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "https://canal-pals.onrender.com";
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
 const POLL_INTERVAL = 3000; // ms
 
 type LiveReading = {

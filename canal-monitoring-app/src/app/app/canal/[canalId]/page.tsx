@@ -18,7 +18,6 @@ import {
   CartesianGrid,
   Line,
   LineChart,
-  ReferenceLine,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -32,7 +31,6 @@ import type { CanalInfo, CanalReading } from "@/types/canal";
 import LiveFlowChart from "@/components/dashboard/LiveFlowChart";
 import DailyAvgChart from "@/components/dashboard/DailyAvgChart";
 import WeeklyBarChart from "@/components/dashboard/WeeklyBarChart";
-import PredictionChart from "@/components/dashboard/PredictionChart";
 import { useCanalSSE } from "@/hooks/useCanalSSE";
 import dynamic from "next/dynamic";
 
@@ -41,7 +39,7 @@ const MiniMap = dynamic(() => import("@/components/map/MiniMap"), {
 });
 
 const BACKEND_URL =
-  process.env.NEXT_PUBLIC_BACKEND_URL ?? "https://canal-pals.onrender.com";
+  process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://localhost:3001";
 
 const SEND_INTERVAL_OPTIONS_MS = (() => {
   const values: number[] = [];
@@ -160,6 +158,7 @@ export default function UserCanalDashboard() {
   const [savingSettings, setSavingSettings] = useState(false);
   const [settingsMsg, setSettingsMsg] = useState<string | null>(null);
   const [polledReading, setPolledReading] = useState<CanalReading | null>(null);
+  const [timeline, setTimeline] = useState<TimelinePoint[]>([]);
   const [sendIntervalMs, setSendIntervalMs] = useState(
     DEFAULT_SEND_INTERVAL_MS,
   );
@@ -312,6 +311,17 @@ export default function UserCanalDashboard() {
         addSuffix: true,
       })
     : "Never";
+  const currentHeight =
+    activeReading?.height ??
+    activeReading?.depth ??
+    (activeReading?.waterLevel != null
+      ? Number(activeReading.waterLevel)
+      : null);
+  const heightMeasuredAt = activeReading?.timestamp
+    ? new Date(activeReading.timestamp).toLocaleString()
+    : activeReading?.receivedAt
+      ? new Date(activeReading.receivedAt).toLocaleString()
+      : "Waiting for reading";
   const [lon, lat] = canal?.location.coordinates ?? [0, 0];
 
   // Health score: status 40% + battery 30% + signal 30%
@@ -421,6 +431,22 @@ export default function UserCanalDashboard() {
       setForceReadBusy(false);
     }, FORCE_READ_RESET_DELAY_MS);
   }, [lastForceReadAt, publishSettings]);
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <p className="text-muted-foreground animate-pulse">Loading…</p>
+      </div>
+    );
+  }
+
+  if (!canal) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <p className="text-muted-foreground">Canal not found.</p>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto">
@@ -738,8 +764,8 @@ export default function UserCanalDashboard() {
                       }}
                     />
                     <Tooltip
-                      formatter={(value: number) => [
-                        value.toFixed(3),
+                      formatter={(value: number | string | undefined) => [
+                        Number(value ?? 0).toFixed(3),
                         "Height (m)",
                       ]}
                       labelFormatter={(_, payload) => {
@@ -788,8 +814,8 @@ export default function UserCanalDashboard() {
                       }}
                     />
                     <Tooltip
-                      formatter={(value: number) => [
-                        value.toFixed(3),
+                      formatter={(value: number | string | undefined) => [
+                        Number(value ?? 0).toFixed(3),
                         "Flow Rate (m³/s)",
                       ]}
                       labelFormatter={(_, payload) => {
@@ -813,80 +839,6 @@ export default function UserCanalDashboard() {
                 </ResponsiveContainer>
               </div>
 
-              <div>
-                <h3 className="text-sm font-semibold mb-2">
-                  Predicted Height Rise
-                </h3>
-                <ResponsiveContainer width="100%" height={260}>
-                  <LineChart data={predictionData}>
-                    <CartesianGrid
-                      strokeDasharray="3 3"
-                      className="stroke-border"
-                    />
-                    <XAxis
-                      dataKey="label"
-                      tick={{ fontSize: 11 }}
-                      interval="preserveStartEnd"
-                    />
-                    <YAxis
-                      domain={[0, 3]}
-                      tick={{ fontSize: 11 }}
-                      label={{
-                        value: "Height (m)",
-                        angle: -90,
-                        position: "insideLeft",
-                        style: { fontSize: 11 },
-                      }}
-                    />
-                    <Tooltip
-                      formatter={(value: number, name: string) => [
-                        value.toFixed(3),
-                        name === "predictedHeight"
-                          ? "Predicted Height (m)"
-                          : "Actual Height (m)",
-                      ]}
-                      labelFormatter={(_, payload) => {
-                        if (payload && payload[0]?.payload?.timestamp) {
-                          return new Date(
-                            payload[0].payload.timestamp,
-                          ).toLocaleString();
-                        }
-                        return "";
-                      }}
-                    />
-                    <ReferenceLine
-                      x={
-                        predictionData.find(
-                          (d) =>
-                            d.predictedHeight != null && d.actualHeight != null,
-                        )?.label
-                      }
-                      stroke="#94a3b8"
-                      strokeDasharray="4 4"
-                      label="Now"
-                    />
-                    <Line
-                      type="monotone"
-                      dataKey="actualHeight"
-                      stroke="hsl(var(--primary))"
-                      strokeWidth={2}
-                      dot={false}
-                      connectNulls={false}
-                      name="actualHeight"
-                    />
-                    <Line
-                      type="monotone"
-                      dataKey="predictedHeight"
-                      stroke="#f59e0b"
-                      strokeWidth={2}
-                      strokeDasharray="6 3"
-                      dot={false}
-                      connectNulls={false}
-                      name="predictedHeight"
-                    />
-                  </LineChart>
-                </ResponsiveContainer>
-              </div>
             </div>
           )}
         </CardContent>

@@ -18,9 +18,18 @@ const defaults = {
   statusTopic: process.env.MQTT_STATUS_TOPIC || "canal/+/status",
 };
 
+const UNKNOWN_CANAL_WARN_INTERVAL_MS =
+  parseInt(process.env.MQTT_UNKNOWN_CANAL_WARN_INTERVAL_MS, 10) || 60 * 1000;
+const LOG_ALL_READINGS =
+  String(process.env.MQTT_LOG_ALL_READINGS || process.env.NODE_ENV !== "production")
+    .toLowerCase()
+    .trim() === "true";
+
 let client = null;
 let mqttConnected = false;
+let connectionState = "idle";
 const latestSettingsByDevice = new Map();
+const unknownCanalWarningCache = new Map();
 const stats = {
   startedAt: null,
   received: 0,
@@ -29,6 +38,57 @@ const stats = {
   lastMessageAt: null,
   lastError: null,
 };
+
+function topicDeviceId(topic) {
+  const parts = String(topic || "").split("/");
+  return parts[1] || "unknown";
+}
+
+function logIncomingReading(topic, parsed) {
+  if (!LOG_ALL_READINGS) return;
+
+  const canalId = parsed?.canalId ? String(parsed.canalId).trim() : "unknown";
+  const deviceId = parsed?.deviceId
+    ? String(parsed.deviceId).trim()
+    : topicDeviceId(topic);
+  const flowRate = Number(parsed?.flowRate);
+  const depth = Number(parsed?.depth);
+  const waterLevel = Number(parsed?.waterLevel);
+
+  console.log(
+    `[MQTT] RX canal=${canalId} device=${deviceId} flowRate=${Number.isFinite(flowRate) ? flowRate : "n/a"} depth=${Number.isFinite(depth) ? depth : "n/a"} waterLevel=${Number.isFinite(waterLevel) ? waterLevel : "n/a"}`,
+  );
+}
+
+function logRejectedReading(reason) {
+  const canalNotFoundPrefix = "Canal not found: ";
+  const text = String(reason || "Unknown reason");
+
+  if (!text.startsWith(canalNotFoundPrefix)) {
+    console.warn(`[MQTT] Reading rejected: ${text}`);
+    return;
+  }
+
+  const canalId = text.slice(canalNotFoundPrefix.length).trim() || "unknown";
+  const now = Date.now();
+  const cached = unknownCanalWarningCache.get(canalId) || {
+    count: 0,
+    lastWarnAt: 0,
+  };
+
+  cached.count += 1;
+
+  if (now - cached.lastWarnAt >= UNKNOWN_CANAL_WARN_INTERVAL_MS) {
+    const count = cached.count;
+    const windowSeconds = Math.round(UNKNOWN_CANAL_WARN_INTERVAL_MS / 1000);
+    const suffix = count > 1 ? ` (x${count} in last ${windowSeconds}s)` : "";
+    console.warn(`[MQTT] Reading rejected: Canal not found: ${canalId}${suffix}`);
+    cached.count = 0;
+    cached.lastWarnAt = now;
+  }
+
+  unknownCanalWarningCache.set(canalId, cached);
+}
 
 function sanitizeSettingsPayload(payload) {
   if (!payload || typeof payload !== "object") return {};
@@ -106,6 +166,7 @@ async function handleTopicMessage(topic, payload) {
     }
 
     if (/^canal\/[^/]+\/data$/.test(topic)) {
+      logIncomingReading(topic, parsed);
       const result = await processMqttReading(parsed, "mqtt");
       if (result.accepted) {
         stats.accepted += 1;
@@ -114,7 +175,7 @@ async function handleTopicMessage(topic, payload) {
         );
       } else {
         stats.rejected += 1;
-        console.warn(`[MQTT] Reading rejected: ${result.reason}`);
+        logRejectedReading(result.reason);
       }
       return;
     }
@@ -156,6 +217,7 @@ async function start() {
 
   client.on("connect", () => {
     mqttConnected = true;
+    connectionState = "connected";
     stats.lastError = null;
 
     const topics = [
@@ -183,12 +245,18 @@ async function start() {
 
   client.on("reconnect", () => {
     mqttConnected = false;
-    console.log("[MQTT] Reconnecting...");
+    if (connectionState !== "reconnecting") {
+      connectionState = "reconnecting";
+      console.log("[MQTT] Reconnecting...");
+    }
   });
 
   client.on("offline", () => {
     mqttConnected = false;
-    console.warn("[MQTT] Offline");
+    if (connectionState !== "offline") {
+      connectionState = "offline";
+      console.warn("[MQTT] Offline");
+    }
   });
 
   client.on("error", (error) => {

@@ -6,7 +6,7 @@ import Navbar from "../../components/Navbar";
 import canals from "../../data/canals";
 
 const API_BASE =
-  process.env.NEXT_PUBLIC_API_URL || "https://canal-pals.onrender.com";
+  process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
 const POLL_INTERVAL = 3000; // ms — match simulator frequency
 
 type LiveMetric = {
