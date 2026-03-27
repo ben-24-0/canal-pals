@@ -333,34 +333,20 @@ export default function AdminCanalDashboard() {
     setLastForceReadAt(now);
     setForceReadBusy(true);
 
-    try {
-      const res = await fetch(
-        `${BACKEND_URL}/api/esp32/measure/${encodeURIComponent(canalId)}`,
-        { method: "POST" },
-      );
-      const body = await res.json().catch(() => ({}));
+    const sent = await publishDeviceSettings(
+      { forceReadNow: true },
+      "Measure command sent. Waiting for live /data update...",
+    );
 
-      if (!res.ok) {
-        setDeviceSettingsMsg(body?.message || "Failed to trigger measure.");
-        return;
-      }
-
-      setDeviceSettingsMsg(body?.message || "Measure completed.");
-
-      fetchCanal();
+    if (sent) {
       fetchReadings(fromDate, toDate);
-      fetchDeviceSettings();
-    } catch {
-      setDeviceSettingsMsg("Failed to trigger measure.");
-    } finally {
-      setForceReadBusy(false);
     }
+
+    setForceReadBusy(false);
   }, [
     lastForceReadAt,
-    canalId,
-    fetchCanal,
     fetchReadings,
-    fetchDeviceSettings,
+    publishDeviceSettings,
     fromDate,
     toDate,
   ]);

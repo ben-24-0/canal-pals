@@ -7,35 +7,6 @@ const mqttIngest = require("../lib/mqttIngest");
 
 const router = express.Router();
 
-function resolveReadingTimestampMs(reading) {
-  if (!reading) return 0;
-
-  const candidates = [reading.receivedAt, reading.timestamp, reading.createdAt];
-  for (const value of candidates) {
-    if (!value) continue;
-    const ts = new Date(value).getTime();
-    if (Number.isFinite(ts) && ts > 0) return ts;
-  }
-
-  return 0;
-}
-
-async function waitForNewReading(canalId, baselineTimestampMs, timeoutMs = 15000) {
-  const startedAt = Date.now();
-
-  while (Date.now() - startedAt < timeoutMs) {
-    const latest = dataBuffer.getLatest(canalId);
-    const latestTs = resolveReadingTimestampMs(latest);
-    if (latest && latestTs > baselineTimestampMs) {
-      return latest;
-    }
-
-    await new Promise((resolve) => setTimeout(resolve, 500));
-  }
-
-  return null;
-}
-
 // Middleware to validate ESP32 device ID
 const validateDeviceId = (req, res, next) => {
   const deviceId = req.headers["x-esp32-id"] || req.body.deviceId;
@@ -261,73 +232,6 @@ router.post("/settings/:canalId", async (req, res) => {
     console.error("Error publishing device settings:", error);
     return res.status(500).json({
       error: "Settings publish failed",
-      message: error.message,
-    });
-  }
-});
-
-// POST /api/esp32/measure/:canalId - force device read and persist fresh reading immediately
-router.post("/measure/:canalId", async (req, res) => {
-  try {
-    const canalId = String(req.params.canalId || "")
-      .toLowerCase()
-      .trim();
-    const canal = await Canal.findOne({ canalId, isActive: true }).lean();
-
-    if (!canal) {
-      return res.status(404).json({
-        error: "Canal not found",
-        message: `Canal ${canalId} is not available`,
-      });
-    }
-
-    if (!canal.esp32DeviceId) {
-      return res.status(400).json({
-        error: "No device bound",
-        message: "This canal does not have an associated ESP32 deviceId",
-      });
-    }
-
-    const baselineReading = dataBuffer.getLatest(canalId);
-    const baselineTs = resolveReadingTimestampMs(baselineReading);
-
-    const published = await mqttIngest.publishDeviceSettings(canal.esp32DeviceId, {
-      forceReadNow: true,
-    });
-
-    if (!published.ok) {
-      return res.status(503).json({
-        error: "Failed to publish measure command",
-        message: published.message,
-        mqtt: mqttIngest.getStatus(),
-      });
-    }
-
-    const freshReading = await waitForNewReading(canalId, baselineTs, 15000);
-
-    if (!freshReading) {
-      return res.status(202).json({
-        success: false,
-        message: "Measure command sent, but no new reading received yet",
-        canalId,
-        deviceId: canal.esp32DeviceId,
-      });
-    }
-
-    const flushResult = await dataBuffer.flush();
-
-    return res.json({
-      success: true,
-      message: "Fresh reading received and persisted",
-      canalId,
-      deviceId: canal.esp32DeviceId,
-      reading: freshReading,
-      persisted: flushResult,
-    });
-  } catch (error) {
-    console.error("Error forcing measurement:", error);
-    return res.status(500).json({
-      error: "Measure command failed",
       message: error.message,
     });
   }
