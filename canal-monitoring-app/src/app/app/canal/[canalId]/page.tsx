@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, useMemo, useRef } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import { useParams } from "next/navigation";
 import { formatDistanceToNow } from "date-fns";
 import {
@@ -51,7 +51,6 @@ const SEND_INTERVAL_OPTIONS_MS = (() => {
 const DEFAULT_SEND_INTERVAL_MS = 10000;
 const OFFLINE_EXTRA_BUFFER_MS = 2 * 60 * 1000;
 const FORCE_READ_COOLDOWN_MS = 10 * 1000;
-const FORCE_READ_RESET_DELAY_MS = 5 * 1000;
 
 function formatInterval(ms: number): string {
   if (ms < 60000) return `${Math.round(ms / 1000)} s`;
@@ -166,9 +165,6 @@ export default function UserCanalDashboard() {
   );
   const [forceReadBusy, setForceReadBusy] = useState(false);
   const [lastForceReadAt, setLastForceReadAt] = useState(0);
-  const forceReadResetTimer = useRef<ReturnType<typeof setTimeout> | null>(
-    null,
-  );
 
   // SSE: live reading without polling
   const { reading, connected } = useCanalSSE(canalId);
@@ -246,14 +242,6 @@ export default function UserCanalDashboard() {
     }, 10000);
     return () => clearInterval(timer);
   }, [canalId, fetchCanal, fetchLatestReading, fetchDeviceSettings]);
-
-  useEffect(() => {
-    return () => {
-      if (forceReadResetTimer.current) {
-        clearTimeout(forceReadResetTimer.current);
-      }
-    };
-  }, []);
 
   useEffect(() => {
     if (!reading) return;
@@ -416,17 +404,7 @@ export default function UserCanalDashboard() {
       return;
     }
 
-    if (forceReadResetTimer.current) {
-      clearTimeout(forceReadResetTimer.current);
-    }
-
-    forceReadResetTimer.current = setTimeout(async () => {
-      await publishSettings(
-        { forceReadNow: false },
-        "Measure command completed.",
-      );
-      setForceReadBusy(false);
-    }, FORCE_READ_RESET_DELAY_MS);
+    setForceReadBusy(false);
   }, [lastForceReadAt, publishSettings]);
 
   if (loading) {

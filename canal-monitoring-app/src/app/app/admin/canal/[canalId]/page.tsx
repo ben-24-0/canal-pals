@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, useMemo, useRef } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import { useParams, useRouter } from "next/navigation";
 import {
   Gauge,
@@ -12,6 +12,8 @@ import {
   Trash2,
   AlertTriangle,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   Download,
 } from "lucide-react";
 import {
@@ -58,11 +60,11 @@ interface TimelinePoint {
   flowRate: number;
 }
 
-const DEFAULT_VISIBLE_READINGS = 10;
+const DEFAULT_ROWS_PER_PAGE = 25;
+const ROWS_PER_PAGE_OPTIONS = [10, 25, 50, 100] as const;
 const DEFAULT_SEND_INTERVAL_MS = 10000;
 const OFFLINE_EXTRA_BUFFER_MS = 2 * 60 * 1000;
 const FORCE_READ_COOLDOWN_MS = 10 * 1000;
-const FORCE_READ_RESET_DELAY_MS = 5 * 1000;
 const SEND_INTERVAL_OPTIONS_MS = (() => {
   const values: number[] = [];
   for (let seconds = 10; seconds <= 60; seconds += 10) {
@@ -127,7 +129,8 @@ export default function AdminCanalDashboard() {
     return d.toISOString().slice(0, 10);
   });
   const [toDate, setToDate] = useState(() => new Date().toISOString().slice(0, 10));
-  const [showAllReadings, setShowAllReadings] = useState(false);
+  const [rowsPerPage, setRowsPerPage] = useState<number>(DEFAULT_ROWS_PER_PAGE);
+  const [currentPage, setCurrentPage] = useState(1);
   const [sendingDeviceSettings, setSendingDeviceSettings] = useState(false);
   const [deviceSettingsMsg, setDeviceSettingsMsg] = useState<string | null>(null);
   const [sendIntervalMs, setSendIntervalMs] = useState(DEFAULT_SEND_INTERVAL_MS);
@@ -139,9 +142,6 @@ export default function AdminCanalDashboard() {
   );
   const [forceReadBusy, setForceReadBusy] = useState(false);
   const [lastForceReadAt, setLastForceReadAt] = useState(0);
-  const forceReadResetTimer = useRef<ReturnType<typeof setTimeout> | null>(
-    null,
-  );
 
   // SSE: live reading — no polling needed
   const { reading, connected } = useCanalSSE(canalId);
@@ -343,17 +343,7 @@ export default function AdminCanalDashboard() {
       return;
     }
 
-    if (forceReadResetTimer.current) {
-      clearTimeout(forceReadResetTimer.current);
-    }
-
-    forceReadResetTimer.current = setTimeout(async () => {
-      await publishDeviceSettings(
-        { forceReadNow: false },
-        "Measure command completed.",
-      );
-      setForceReadBusy(false);
-    }, FORCE_READ_RESET_DELAY_MS);
+    setForceReadBusy(false);
   }, [lastForceReadAt, publishDeviceSettings]);
 
   useEffect(() => {
@@ -372,14 +362,6 @@ export default function AdminCanalDashboard() {
 
     return () => clearInterval(timer);
   }, [canalId, fetchCanal, fetchReadings, fetchDeviceSettings, fromDate, toDate]);
-
-  useEffect(() => {
-    return () => {
-      if (forceReadResetTimer.current) {
-        clearTimeout(forceReadResetTimer.current);
-      }
-    };
-  }, []);
 
   useEffect(() => {
     if (!canalId) return;
@@ -577,15 +559,28 @@ export default function AdminCanalDashboard() {
   }, [timeline, rangeStartTs, rangeEndTs]);
 
   useEffect(() => {
-    setShowAllReadings(false);
-  }, [fromDate, toDate]);
+    setCurrentPage(1);
+  }, [fromDate, toDate, filteredTimeline.length]);
+
+  const orderedTableRows = useMemo(() => {
+    return [...filteredTimeline].reverse();
+  }, [filteredTimeline]);
+
+  const totalRows = orderedTableRows.length;
+  const totalPages = Math.max(1, Math.ceil(totalRows / rowsPerPage));
+  const safeCurrentPage = Math.min(currentPage, totalPages);
+  const pageStartIndex = (safeCurrentPage - 1) * rowsPerPage;
+  const pageEndIndex = Math.min(pageStartIndex + rowsPerPage, totalRows);
 
   const tableRows = useMemo(() => {
-    const ordered = [...filteredTimeline].reverse();
-    return showAllReadings
-      ? ordered
-      : ordered.slice(0, DEFAULT_VISIBLE_READINGS);
-  }, [filteredTimeline, showAllReadings]);
+    return orderedTableRows.slice(pageStartIndex, pageEndIndex);
+  }, [orderedTableRows, pageStartIndex, pageEndIndex]);
+
+  useEffect(() => {
+    if (currentPage !== safeCurrentPage) {
+      setCurrentPage(safeCurrentPage);
+    }
+  }, [currentPage, safeCurrentPage]);
 
   const chartHeightDomain = useMemo(() => {
     if (filteredTimeline.length === 0) return [0, 1] as const;
@@ -611,10 +606,21 @@ export default function AdminCanalDashboard() {
       return;
     }
 
+    const csvTimestampFormatter = new Intl.DateTimeFormat("en-GB", {
+      timeZone: "Etc/GMT",
+      day: "numeric",
+      month: "numeric",
+      year: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: true,
+    });
+
     const rows = [
       ["Timestamp", "Height (m)", "Flow Rate (m3/s)"],
       ...filteredTimeline.map((row) => [
-        new Date(row.timestamp).toISOString(),
+        csvTimestampFormatter.format(new Date(row.timestamp)),
         row.height.toFixed(3),
         row.flowRate.toFixed(3),
       ]),
@@ -958,18 +964,51 @@ export default function AdminCanalDashboard() {
               </tbody>
             </table>
           </div>
-          {filteredTimeline.length > DEFAULT_VISIBLE_READINGS && (
-            <div className="mt-3 flex items-center justify-between gap-3">
-              <p className="text-xs text-muted-foreground">
-                Showing {tableRows.length} of {filteredTimeline.length} readings
-              </p>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => setShowAllReadings((prev) => !prev)}
-              >
-                {showAllReadings ? "Show less" : "Show more"}
-              </Button>
+          {totalRows > 0 && (
+            <div className="mt-3 flex flex-wrap items-center justify-between gap-3 text-sm">
+              <div className="flex items-center gap-2 text-muted-foreground">
+                <span>Rows per page</span>
+                <select
+                  value={rowsPerPage}
+                  onChange={(e) => {
+                    setRowsPerPage(Number(e.target.value));
+                    setCurrentPage(1);
+                  }}
+                  className="h-8 rounded-md border bg-background px-2 text-foreground"
+                >
+                  {ROWS_PER_PAGE_OPTIONS.map((option) => (
+                    <option key={option} value={option}>
+                      {option}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="flex items-center gap-2 text-muted-foreground">
+                <span>
+                  {pageStartIndex + 1}-{pageEndIndex} of {totalRows}
+                </span>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => setCurrentPage((prev) => Math.max(1, prev - 1))}
+                  disabled={safeCurrentPage <= 1}
+                  aria-label="Previous page"
+                >
+                  <ChevronLeft className="w-4 h-4" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() =>
+                    setCurrentPage((prev) => Math.min(totalPages, prev + 1))
+                  }
+                  disabled={safeCurrentPage >= totalPages}
+                  aria-label="Next page"
+                >
+                  <ChevronRight className="w-4 h-4" />
+                </Button>
+              </div>
             </div>
           )}
         </CardContent>
