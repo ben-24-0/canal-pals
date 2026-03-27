@@ -2,6 +2,7 @@ const express = require("express");
 const { body, validationResult } = require("express-validator");
 const Canal = require("../models/Canal");
 const CanalReading = require("../models/CanalReading");
+const mqttIngest = require("../lib/mqttIngest");
 
 const router = express.Router();
 
@@ -99,10 +100,31 @@ router.get("/:canalId", async (req, res) => {
       .sort({ timestamp: -1 })
       .select("-__v");
 
+    const lastReadingTimeMs = latestReading
+      ? new Date(
+          latestReading.receivedAt || latestReading.timestamp || Date.now(),
+        ).getTime()
+      : 0;
+
+    const deviceSettings = canal.esp32DeviceId
+      ? mqttIngest.getDeviceSettings(canal.esp32DeviceId)
+      : null;
+    const configuredSendIntervalMs = Number(deviceSettings?.sendIntervalMs);
+    const effectiveSendIntervalMs =
+      Number.isFinite(configuredSendIntervalMs) && configuredSendIntervalMs > 0
+        ? configuredSendIntervalMs
+        : 10000;
+    const onlineThresholdMs = effectiveSendIntervalMs + 2 * 60 * 1000;
+
+    const isOnline =
+      Number.isFinite(lastReadingTimeMs) && lastReadingTimeMs > 0
+        ? Date.now() - lastReadingTimeMs <= onlineThresholdMs
+        : false;
+
     res.json({
       canal,
       latestReading,
-      isOnline: latestReading ? latestReading.isRecentReading() : false,
+      isOnline,
     });
   } catch (error) {
     console.error("Error fetching canal:", error);

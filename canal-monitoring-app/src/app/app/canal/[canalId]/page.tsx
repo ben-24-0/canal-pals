@@ -26,11 +26,7 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { CanalInfo, CanalReading } from "@/types/canal";
-import LiveFlowChart from "@/components/dashboard/LiveFlowChart";
-import DailyAvgChart from "@/components/dashboard/DailyAvgChart";
-import WeeklyBarChart from "@/components/dashboard/WeeklyBarChart";
 import { useCanalSSE } from "@/hooks/useCanalSSE";
 import dynamic from "next/dynamic";
 
@@ -246,9 +242,10 @@ export default function UserCanalDashboard() {
     const timer = setInterval(() => {
       fetchCanal();
       fetchLatestReading();
+      fetchDeviceSettings();
     }, 10000);
     return () => clearInterval(timer);
-  }, [canalId, fetchCanal, fetchLatestReading]);
+  }, [canalId, fetchCanal, fetchLatestReading, fetchDeviceSettings]);
 
   useEffect(() => {
     return () => {
@@ -337,7 +334,7 @@ export default function UserCanalDashboard() {
       : 15;
   const healthScore = Math.round(statusScore + battScore + sigScore);
   const ts = getReadingTimestampMs(activeReading);
-  const offlineThresholdMs = sendIntervalMs + OFFLINE_EXTRA_BUFFER_MS;
+  const offlineThresholdMs = appliedIntervalMs + OFFLINE_EXTRA_BUFFER_MS;
   const deviceOnline =
     Number.isFinite(ts) && ts > 0
       ? Date.now() - ts <= offlineThresholdMs
@@ -514,7 +511,7 @@ export default function UserCanalDashboard() {
                   onClick={handleForceRead}
                   disabled={savingSettings || forceReadBusy}
                 >
-                  {forceReadBusy ? "Measuring..." : "Measure Now"}
+                  {forceReadBusy ? "Measuring..." : "Measure"}
                 </button>
               </div>
               <MetricRow

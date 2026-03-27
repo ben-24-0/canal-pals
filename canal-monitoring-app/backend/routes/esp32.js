@@ -177,7 +177,7 @@ router.post("/settings/:canalId", async (req, res) => {
       });
     }
 
-    const allowed = ["canalId", "deviceId", "sendIntervalMs", "forceReadNow"];
+    const allowed = ["sendIntervalMs", "forceReadNow"];
 
     const payload = {};
     for (const key of allowed) {
@@ -186,15 +186,27 @@ router.post("/settings/:canalId", async (req, res) => {
       }
     }
 
+    if (payload.sendIntervalMs !== undefined) {
+      const interval = Number(payload.sendIntervalMs);
+      if (!Number.isInteger(interval) || interval <= 0) {
+        return res.status(400).json({
+          error: "Invalid sendIntervalMs",
+          message: "sendIntervalMs must be a positive integer (milliseconds)",
+        });
+      }
+      payload.sendIntervalMs = interval;
+    }
+
+    if (payload.forceReadNow !== undefined) {
+      payload.forceReadNow = Boolean(payload.forceReadNow);
+    }
+
     if (Object.keys(payload).length === 0) {
       return res.status(400).json({
         error: "Empty settings payload",
         message: "Provide at least one valid settings field",
       });
     }
-
-    if (!payload.canalId) payload.canalId = canal.canalId;
-    if (!payload.deviceId) payload.deviceId = canal.esp32DeviceId;
 
     const published = await mqttIngest.publishDeviceSettings(
       canal.esp32DeviceId,

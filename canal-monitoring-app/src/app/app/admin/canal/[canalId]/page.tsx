@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, useMemo } from "react";
+import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 import {
   Gauge,
@@ -59,6 +59,40 @@ interface TimelinePoint {
 }
 
 const DEFAULT_VISIBLE_READINGS = 10;
+const DEFAULT_SEND_INTERVAL_MS = 10000;
+const OFFLINE_EXTRA_BUFFER_MS = 2 * 60 * 1000;
+const FORCE_READ_COOLDOWN_MS = 10 * 1000;
+const FORCE_READ_RESET_DELAY_MS = 5 * 1000;
+const SEND_INTERVAL_OPTIONS_MS = (() => {
+  const values: number[] = [];
+  for (let seconds = 10; seconds <= 60; seconds += 10) {
+    values.push(seconds * 1000);
+  }
+  for (let minutes = 2; minutes <= 60; minutes += 1) {
+    values.push(minutes * 60 * 1000);
+  }
+  return values;
+})();
+
+function formatInterval(ms: number): string {
+  if (ms < 60000) return `${Math.round(ms / 1000)} s`;
+  return `${Math.round(ms / 60000)} min`;
+}
+
+function getClosestIntervalIndex(ms: number): number {
+  let closestIndex = 0;
+  let closestDelta = Number.POSITIVE_INFINITY;
+
+  SEND_INTERVAL_OPTIONS_MS.forEach((candidate, idx) => {
+    const delta = Math.abs(candidate - ms);
+    if (delta < closestDelta) {
+      closestDelta = delta;
+      closestIndex = idx;
+    }
+  });
+
+  return closestIndex;
+}
 
 function resolveReadingTime(
   reading: {
@@ -94,6 +128,20 @@ export default function AdminCanalDashboard() {
   });
   const [toDate, setToDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [showAllReadings, setShowAllReadings] = useState(false);
+  const [sendingDeviceSettings, setSendingDeviceSettings] = useState(false);
+  const [deviceSettingsMsg, setDeviceSettingsMsg] = useState<string | null>(null);
+  const [sendIntervalMs, setSendIntervalMs] = useState(DEFAULT_SEND_INTERVAL_MS);
+  const [appliedIntervalMs, setAppliedIntervalMs] = useState(
+    DEFAULT_SEND_INTERVAL_MS,
+  );
+  const [sliderIndex, setSliderIndex] = useState(
+    getClosestIntervalIndex(DEFAULT_SEND_INTERVAL_MS),
+  );
+  const [forceReadBusy, setForceReadBusy] = useState(false);
+  const [lastForceReadAt, setLastForceReadAt] = useState(0);
+  const forceReadResetTimer = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
 
   // SSE: live reading — no polling needed
   const { reading, connected } = useCanalSSE(canalId);
@@ -111,10 +159,6 @@ export default function AdminCanalDashboard() {
       setLoading(false);
     }
   }, [canalId]);
-
-  useEffect(() => {
-    fetchCanal();
-  }, [fetchCanal]);
 
   const fetchReadings = useCallback(
     async (startDate?: string, endDate?: string) => {
@@ -195,6 +239,147 @@ export default function AdminCanalDashboard() {
     },
     [canalId],
   );
+
+  const fetchDeviceSettings = useCallback(async () => {
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/esp32/settings/${canalId}`);
+      if (!res.ok) return;
+
+      const body = await res.json().catch(() => null);
+      const remoteInterval = Number(body?.settings?.sendIntervalMs);
+      const fallbackInterval = Number(body?.fallbackSendIntervalMs);
+
+      const targetInterval =
+        Number.isFinite(remoteInterval) && remoteInterval > 0
+          ? remoteInterval
+          : Number.isFinite(fallbackInterval) && fallbackInterval > 0
+            ? fallbackInterval
+            : DEFAULT_SEND_INTERVAL_MS;
+
+      const nearestIdx = getClosestIntervalIndex(targetInterval);
+      const nearestMs = SEND_INTERVAL_OPTIONS_MS[nearestIdx];
+
+      setSliderIndex(nearestIdx);
+      setSendIntervalMs(nearestMs);
+      setAppliedIntervalMs(nearestMs);
+    } catch (err) {
+      console.error(err);
+    }
+  }, [canalId]);
+
+  const publishDeviceSettings = useCallback(
+    async (
+      payload: Record<string, unknown>,
+      successMessage = "Settings published.",
+    ) => {
+      if (!canal) return false;
+      if (Object.keys(payload).length === 0) {
+        setDeviceSettingsMsg("Add at least one setting to publish.");
+        return false;
+      }
+
+      setSendingDeviceSettings(true);
+      setDeviceSettingsMsg(null);
+
+      try {
+        const res = await fetch(
+          `${BACKEND_URL}/api/esp32/settings/${encodeURIComponent(canal.canalId)}`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          },
+        );
+
+        const j = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          setDeviceSettingsMsg(j?.message || "Failed to publish settings.");
+          return false;
+        }
+
+        setDeviceSettingsMsg(successMessage);
+        return true;
+      } catch {
+        setDeviceSettingsMsg("Failed to publish settings.");
+        return false;
+      } finally {
+        setSendingDeviceSettings(false);
+      }
+    },
+    [canal],
+  );
+
+  const commitSendInterval = useCallback(async () => {
+    if (sendIntervalMs === appliedIntervalMs) return;
+
+    const ok = await publishDeviceSettings(
+      { sendIntervalMs },
+      `Send interval updated to ${formatInterval(sendIntervalMs)}.`,
+    );
+    if (ok) {
+      setAppliedIntervalMs(sendIntervalMs);
+    }
+  }, [sendIntervalMs, appliedIntervalMs, publishDeviceSettings]);
+
+  const handleForceRead = useCallback(async () => {
+    const now = Date.now();
+    const remainingMs = FORCE_READ_COOLDOWN_MS - (now - lastForceReadAt);
+    if (remainingMs > 0) {
+      const remainingSec = Math.ceil(remainingMs / 1000);
+      setDeviceSettingsMsg(`Please wait ${remainingSec}s before triggering again.`);
+      return;
+    }
+
+    setLastForceReadAt(now);
+    setForceReadBusy(true);
+
+    const sent = await publishDeviceSettings(
+      { forceReadNow: true },
+      "Measure command sent.",
+    );
+
+    if (!sent) {
+      setForceReadBusy(false);
+      return;
+    }
+
+    if (forceReadResetTimer.current) {
+      clearTimeout(forceReadResetTimer.current);
+    }
+
+    forceReadResetTimer.current = setTimeout(async () => {
+      await publishDeviceSettings(
+        { forceReadNow: false },
+        "Measure command completed.",
+      );
+      setForceReadBusy(false);
+    }, FORCE_READ_RESET_DELAY_MS);
+  }, [lastForceReadAt, publishDeviceSettings]);
+
+  useEffect(() => {
+    fetchCanal();
+    fetchDeviceSettings();
+  }, [fetchCanal, fetchDeviceSettings]);
+
+  useEffect(() => {
+    if (!canalId) return;
+
+    const timer = setInterval(() => {
+      fetchCanal();
+      fetchReadings(fromDate, toDate);
+      fetchDeviceSettings();
+    }, 10000);
+
+    return () => clearInterval(timer);
+  }, [canalId, fetchCanal, fetchReadings, fetchDeviceSettings, fromDate, toDate]);
+
+  useEffect(() => {
+    return () => {
+      if (forceReadResetTimer.current) {
+        clearTimeout(forceReadResetTimer.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (!canalId) return;
@@ -471,7 +656,10 @@ export default function AdminCanalDashboard() {
     ) ??
     timeline[timeline.length - 1]?.timestamp ??
     null;
-  const isOffline = !connected && !lastReadingTime;
+  const offlineThresholdMs = appliedIntervalMs + OFFLINE_EXTRA_BUFFER_MS;
+  const isOffline = lastReadingTime
+    ? Date.now() - lastReadingTime > offlineThresholdMs
+    : true;
 
   const measuredTimestamp = resolveReadingTime(
     reading as {
@@ -546,6 +734,17 @@ export default function AdminCanalDashboard() {
                 </span>
                 <span className="text-lg text-muted-foreground">m</span>
               </div>
+            </div>
+
+            <div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleForceRead}
+                disabled={sendingDeviceSettings || forceReadBusy}
+              >
+                {forceReadBusy ? "Measuring..." : "Measure"}
+              </Button>
             </div>
 
             {/* Secondary metrics: Velocity & Flow Rate */}
@@ -926,6 +1125,49 @@ export default function AdminCanalDashboard() {
             </div>
           </div>
 
+          <div className="rounded-lg border p-3 space-y-3">
+            <div className="flex items-center justify-between gap-3 text-sm">
+              <span className="text-muted-foreground">Device send interval</span>
+              <span className="font-medium">{formatInterval(sendIntervalMs)}</span>
+            </div>
+            <input
+              type="range"
+              className="w-full"
+              min={0}
+              max={SEND_INTERVAL_OPTIONS_MS.length - 1}
+              step={1}
+              value={sliderIndex}
+              onChange={(e) => {
+                const idx = Number(e.target.value);
+                const nextMs =
+                  SEND_INTERVAL_OPTIONS_MS[idx] ?? DEFAULT_SEND_INTERVAL_MS;
+                setSliderIndex(idx);
+                setSendIntervalMs(nextMs);
+              }}
+              onMouseUp={commitSendInterval}
+              onTouchEnd={commitSendInterval}
+              onKeyUp={commitSendInterval}
+            />
+            <div className="flex justify-between text-xs text-muted-foreground">
+              <span>10 s</span>
+              <span>1 min</span>
+              <span>60 min</span>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={commitSendInterval}
+                disabled={sendingDeviceSettings}
+              >
+                {sendingDeviceSettings ? "Publishing..." : "Apply Interval"}
+              </Button>
+              <span className="text-xs text-muted-foreground">
+                Topic: canal/{canal.esp32DeviceId ?? "<device-id>"}/settings (retained)
+              </span>
+            </div>
+          </div>
+
           {/* Edit form - only show when in edit mode */}
           {isEditMode && (
             <>
@@ -1185,6 +1427,11 @@ export default function AdminCanalDashboard() {
           {saveSuccess && (
             <div className="p-3 rounded-lg bg-green-500/10 text-green-700 dark:text-green-400 text-sm">
               Settings saved successfully.
+            </div>
+          )}
+          {deviceSettingsMsg && (
+            <div className="p-3 rounded-lg bg-muted/60 text-sm text-muted-foreground">
+              {deviceSettingsMsg}
             </div>
           )}
         </CardContent>
