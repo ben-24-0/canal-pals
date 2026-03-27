@@ -26,7 +26,9 @@ const LOG_ALL_READINGS =
     .trim() === "true";
 
 let client = null;
+let publisherClient = null;
 let mqttConnected = false;
+let publisherConnected = false;
 let connectionState = "idle";
 const latestSettingsByDevice = new Map();
 const unknownCanalWarningCache = new Map();
@@ -202,12 +204,21 @@ async function handleTopicMessage(topic, payload) {
 }
 
 async function start() {
-  if (client) return;
+  if (client && publisherClient) return;
 
   stats.startedAt = new Date().toISOString();
 
   client = mqtt.connect(defaults.brokerUrl, {
     clientId: defaults.clientId,
+    username: defaults.username || undefined,
+    password: defaults.password || undefined,
+    reconnectPeriod: 5000,
+    keepalive: 60,
+    clean: true,
+  });
+
+  publisherClient = mqtt.connect(defaults.brokerUrl, {
+    clientId: `${defaults.clientId}-pub`,
     username: defaults.username || undefined,
     password: defaults.password || undefined,
     reconnectPeriod: 5000,
@@ -263,17 +274,47 @@ async function start() {
     stats.lastError = error.message;
     console.error("[MQTT] Error:", error.message);
   });
+
+  publisherClient.on("connect", () => {
+    publisherConnected = true;
+    console.log("[MQTT-PUB] Connected");
+  });
+
+  publisherClient.on("reconnect", () => {
+    publisherConnected = false;
+  });
+
+  publisherClient.on("offline", () => {
+    publisherConnected = false;
+    console.warn("[MQTT-PUB] Offline");
+  });
+
+  publisherClient.on("error", (error) => {
+    publisherConnected = false;
+    stats.lastError = error.message;
+    console.error("[MQTT-PUB] Error:", error.message);
+  });
 }
 
 async function stop() {
-  if (!client) return;
+  if (!client && !publisherClient) return;
 
-  await new Promise((resolve) => {
-    client.end(false, {}, () => resolve());
-  });
+  if (client) {
+    await new Promise((resolve) => {
+      client.end(false, {}, () => resolve());
+    });
+  }
+
+  if (publisherClient) {
+    await new Promise((resolve) => {
+      publisherClient.end(false, {}, () => resolve());
+    });
+  }
 
   client = null;
+  publisherClient = null;
   mqttConnected = false;
+  publisherConnected = false;
 }
 
 async function publishDeviceSettings(deviceId, payload) {
@@ -281,15 +322,15 @@ async function publishDeviceSettings(deviceId, payload) {
     return { ok: false, message: "Missing deviceId" };
   }
 
-  if (!client || !mqttConnected) {
-    return { ok: false, message: "MQTT client is not connected" };
+  if (!publisherClient || !publisherConnected) {
+    return { ok: false, message: "MQTT publisher client is not connected" };
   }
 
   const topic = `canal/${deviceId}/settings`;
   const message = JSON.stringify(payload || {});
 
   return new Promise((resolve) => {
-    client.publish(topic, message, { qos: 1, retain: false }, (error) => {
+    publisherClient.publish(topic, message, { qos: 1, retain: false }, (error) => {
       if (error) {
         stats.lastError = error.message;
         return resolve({ ok: false, message: error.message, topic });
@@ -311,6 +352,7 @@ function getDeviceSettings(deviceId) {
 function getStatus() {
   return {
     connected: mqttConnected,
+    publisherConnected,
     brokerUrl: defaults.brokerUrl,
     subscriptions: [
       defaults.dataTopic,
