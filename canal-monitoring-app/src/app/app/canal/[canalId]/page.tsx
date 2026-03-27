@@ -396,19 +396,16 @@ export default function UserCanalDashboard() {
 
     const sent = await publishSettings(
       { forceReadNow: true },
-      "Measure command sent. Waiting for live /data update...",
+      "Measure command sent.",
     );
 
-    if (sent) {
-      fetchLatestReading();
+    if (!sent) {
+      setForceReadBusy(false);
+      return;
     }
 
     setForceReadBusy(false);
-  }, [
-    lastForceReadAt,
-    fetchLatestReading,
-    publishSettings,
-  ]);
+  }, [lastForceReadAt, publishSettings]);
 
   if (loading) {
     return (

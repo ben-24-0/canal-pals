@@ -335,21 +335,16 @@ export default function AdminCanalDashboard() {
 
     const sent = await publishDeviceSettings(
       { forceReadNow: true },
-      "Measure command sent. Waiting for live /data update...",
+      "Measure command sent.",
     );
 
-    if (sent) {
-      fetchReadings(fromDate, toDate);
+    if (!sent) {
+      setForceReadBusy(false);
+      return;
     }
 
     setForceReadBusy(false);
-  }, [
-    lastForceReadAt,
-    fetchReadings,
-    publishDeviceSettings,
-    fromDate,
-    toDate,
-  ]);
+  }, [lastForceReadAt, publishDeviceSettings]);
 
   useEffect(() => {
     fetchCanal();
@@ -1207,7 +1202,7 @@ export default function AdminCanalDashboard() {
                 {sendingDeviceSettings ? "Publishing..." : "Apply Interval"}
               </Button>
               <span className="text-xs text-muted-foreground">
-                Topic: canal/{canal.esp32DeviceId ?? "<device-id>"}/settings
+                Topic: canal/{canal.esp32DeviceId ?? "<device-id>"}/settings (retained)
               </span>
             </div>
           </div>
