@@ -128,12 +128,18 @@ export default function AdminCanalDashboard() {
     const d = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
     return d.toISOString().slice(0, 10);
   });
-  const [toDate, setToDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [toDate, setToDate] = useState(() =>
+    new Date().toISOString().slice(0, 10),
+  );
   const [rowsPerPage, setRowsPerPage] = useState<number>(DEFAULT_ROWS_PER_PAGE);
   const [currentPage, setCurrentPage] = useState(1);
   const [sendingDeviceSettings, setSendingDeviceSettings] = useState(false);
-  const [deviceSettingsMsg, setDeviceSettingsMsg] = useState<string | null>(null);
-  const [sendIntervalMs, setSendIntervalMs] = useState(DEFAULT_SEND_INTERVAL_MS);
+  const [deviceSettingsMsg, setDeviceSettingsMsg] = useState<string | null>(
+    null,
+  );
+  const [sendIntervalMs, setSendIntervalMs] = useState(
+    DEFAULT_SEND_INTERVAL_MS,
+  );
   const [appliedIntervalMs, setAppliedIntervalMs] = useState(
     DEFAULT_SEND_INTERVAL_MS,
   );
@@ -201,7 +207,8 @@ export default function AdminCanalDashboard() {
         const points = (json.readings ?? [])
           .map((r) => {
             const ts = resolveReadingTime(r);
-            const heightRaw = r.height ?? r.depth ?? Number(r.waterLevel ?? NaN);
+            const heightRaw =
+              r.height ?? r.depth ?? Number(r.waterLevel ?? NaN);
             const flowRaw = Number(r.flowRate ?? NaN);
 
             if (
@@ -326,7 +333,9 @@ export default function AdminCanalDashboard() {
     const remainingMs = FORCE_READ_COOLDOWN_MS - (now - lastForceReadAt);
     if (remainingMs > 0) {
       const remainingSec = Math.ceil(remainingMs / 1000);
-      setDeviceSettingsMsg(`Please wait ${remainingSec}s before triggering again.`);
+      setDeviceSettingsMsg(
+        `Please wait ${remainingSec}s before triggering again.`,
+      );
       return;
     }
 
@@ -361,7 +370,14 @@ export default function AdminCanalDashboard() {
     }, 10000);
 
     return () => clearInterval(timer);
-  }, [canalId, fetchCanal, fetchReadings, fetchDeviceSettings, fromDate, toDate]);
+  }, [
+    canalId,
+    fetchCanal,
+    fetchReadings,
+    fetchDeviceSettings,
+    fromDate,
+    toDate,
+  ]);
 
   useEffect(() => {
     if (!canalId) return;
@@ -548,7 +564,9 @@ export default function AdminCanalDashboard() {
   const rangeStartTs = fromDate
     ? new Date(`${fromDate}T00:00:00.000Z`).getTime()
     : null;
-  const rangeEndTs = toDate ? new Date(`${toDate}T23:59:59.999Z`).getTime() : null;
+  const rangeEndTs = toDate
+    ? new Date(`${toDate}T23:59:59.999Z`).getTime()
+    : null;
 
   const filteredTimeline = useMemo(() => {
     return timeline.filter((point) => {
@@ -735,7 +753,7 @@ export default function AdminCanalDashboard() {
                 Measured at: {measuredTimestampLabel}
               </p>
               <div className="flex items-baseline gap-1 mt-2">
-                <span className="text-4xl font-bold text-blue-600 dark:text-blue-400">
+                <span className="text-4xl font-bold water-level-gradient">
                   {currentHeight != null ? currentHeight.toFixed(2) : "—"}
                 </span>
                 <span className="text-lg text-muted-foreground">m</span>
@@ -877,7 +895,10 @@ export default function AdminCanalDashboard() {
             <CardTitle className="text-base">Recent Readings Table</CardTitle>
             <div className="grid grid-cols-1 gap-2 sm:flex sm:items-end sm:gap-2 w-full md:w-auto">
               <div className="space-y-1 w-full sm:w-auto">
-                <Label htmlFor="fromDate" className="text-xs text-muted-foreground">
+                <Label
+                  htmlFor="fromDate"
+                  className="text-xs text-muted-foreground"
+                >
                   From
                 </Label>
                 <Input
@@ -889,7 +910,10 @@ export default function AdminCanalDashboard() {
                 />
               </div>
               <div className="space-y-1 w-full sm:w-auto">
-                <Label htmlFor="toDate" className="text-xs text-muted-foreground">
+                <Label
+                  htmlFor="toDate"
+                  className="text-xs text-muted-foreground"
+                >
                   To
                 </Label>
                 <Input
@@ -945,21 +969,21 @@ export default function AdminCanalDashboard() {
                   </tr>
                 ) : (
                   tableRows.map((row) => (
-                      <tr
-                        key={`${row.timestamp}-${row.flowRate}`}
-                        className="border-t"
-                      >
-                        <td className="px-3 py-2">
-                          {new Date(row.timestamp).toLocaleString()}
-                        </td>
-                        <td className="px-3 py-2 text-right font-mono">
-                          {row.height.toFixed(2)}
-                        </td>
-                        <td className="px-3 py-2 text-right font-mono">
-                          {row.flowRate.toFixed(3)}
-                        </td>
-                      </tr>
-                    ))
+                    <tr
+                      key={`${row.timestamp}-${row.flowRate}`}
+                      className="border-t"
+                    >
+                      <td className="px-3 py-2">
+                        {new Date(row.timestamp).toLocaleString()}
+                      </td>
+                      <td className="px-3 py-2 text-right font-mono">
+                        {row.height.toFixed(2)}
+                      </td>
+                      <td className="px-3 py-2 text-right font-mono">
+                        {row.flowRate.toFixed(3)}
+                      </td>
+                    </tr>
+                  ))
                 )}
               </tbody>
             </table>
@@ -991,7 +1015,9 @@ export default function AdminCanalDashboard() {
                 <Button
                   variant="ghost"
                   size="icon"
-                  onClick={() => setCurrentPage((prev) => Math.max(1, prev - 1))}
+                  onClick={() =>
+                    setCurrentPage((prev) => Math.max(1, prev - 1))
+                  }
                   disabled={safeCurrentPage <= 1}
                   aria-label="Previous page"
                 >
@@ -1166,8 +1192,12 @@ export default function AdminCanalDashboard() {
 
           <div className="rounded-lg border p-3 space-y-3">
             <div className="flex items-center justify-between gap-3 text-sm">
-              <span className="text-muted-foreground">Device send interval</span>
-              <span className="font-medium">{formatInterval(sendIntervalMs)}</span>
+              <span className="text-muted-foreground">
+                Device send interval
+              </span>
+              <span className="font-medium">
+                {formatInterval(sendIntervalMs)}
+              </span>
             </div>
             <input
               type="range"
@@ -1202,7 +1232,8 @@ export default function AdminCanalDashboard() {
                 {sendingDeviceSettings ? "Publishing..." : "Apply Interval"}
               </Button>
               <span className="text-xs text-muted-foreground">
-                Topic: canal/{canal.esp32DeviceId ?? "<device-id>"}/settings (retained)
+                Topic: canal/{canal.esp32DeviceId ?? "<device-id>"}/settings
+                (retained)
               </span>
             </div>
           </div>
@@ -1496,6 +1527,64 @@ export default function AdminCanalDashboard() {
                 </h3>
                 <ResponsiveContainer width="100%" height={260}>
                   <AreaChart data={filteredTimeline}>
+                    <defs>
+                      <linearGradient
+                        id="heightWaterFillGradient"
+                        x1="0"
+                        y1="0"
+                        x2="0"
+                        y2="1"
+                      >
+                        <stop offset="0%" stopColor="#22d3ee" stopOpacity={0.9}>
+                          <animate
+                            attributeName="stop-color"
+                            values="#22d3ee;#0ea5e9;#06b6d4;#22d3ee"
+                            dur="6s"
+                            repeatCount="indefinite"
+                          />
+                        </stop>
+                        <stop offset="55%" stopColor="#0284c7" stopOpacity={0.55}>
+                          <animate
+                            attributeName="stop-color"
+                            values="#0284c7;#0369a1;#0284c7"
+                            dur="5s"
+                            repeatCount="indefinite"
+                          />
+                        </stop>
+                        <stop offset="100%" stopColor="#0f172a" stopOpacity={0.12}>
+                          <animate
+                            attributeName="stop-color"
+                            values="#0f172a;#082f49;#0f172a"
+                            dur="7s"
+                            repeatCount="indefinite"
+                          />
+                        </stop>
+                      </linearGradient>
+                      <linearGradient
+                        id="heightWaterStrokeGradient"
+                        x1="0"
+                        y1="0"
+                        x2="1"
+                        y2="0"
+                      >
+                        <stop offset="0%" stopColor="#06b6d4">
+                          <animate
+                            attributeName="stop-color"
+                            values="#06b6d4;#0ea5e9;#06b6d4"
+                            dur="4s"
+                            repeatCount="indefinite"
+                          />
+                        </stop>
+                        <stop offset="100%" stopColor="#0284c7">
+                          <animate
+                            attributeName="stop-color"
+                            values="#0284c7;#0c4a6e;#0284c7"
+                            dur="4s"
+                            repeatCount="indefinite"
+                          />
+                        </stop>
+                      </linearGradient>
+                    </defs>
                     <CartesianGrid
                       strokeDasharray="3 3"
                       className="stroke-border"
@@ -1529,13 +1618,15 @@ export default function AdminCanalDashboard() {
                         Number(value ?? 0).toFixed(3),
                         "Height (m)",
                       ]}
-                      labelFormatter={(value) => new Date(Number(value)).toLocaleString()}
+                      labelFormatter={(value) =>
+                        new Date(Number(value)).toLocaleString()
+                      }
                     />
                     <Area
                       type="monotone"
                       dataKey="height"
-                      stroke="hsl(var(--primary))"
-                      fill="hsl(var(--primary) / 0.2)"
+                      stroke="url(#heightWaterStrokeGradient)"
+                      fill="url(#heightWaterFillGradient)"
                       strokeWidth={2}
                     />
                   </AreaChart>
@@ -1581,7 +1672,9 @@ export default function AdminCanalDashboard() {
                         Number(value ?? 0).toFixed(3),
                         "Flow Rate (m³/s)",
                       ]}
-                      labelFormatter={(value) => new Date(Number(value)).toLocaleString()}
+                      labelFormatter={(value) =>
+                        new Date(Number(value)).toLocaleString()
+                      }
                     />
                     <Line
                       type="monotone"
@@ -1593,7 +1686,6 @@ export default function AdminCanalDashboard() {
                   </LineChart>
                 </ResponsiveContainer>
               </div>
-
             </div>
           )}
         </CardContent>

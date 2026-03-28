@@ -11,14 +11,7 @@ import {
 import Navbar from "../components/Navbar";
 import Footer from "../components/Footer";
 
-const monitoredCanals = [
-  "Canoli Irrigation Canal",
-  "Puthussery-Kalady Irrigation Canal",
-  "Peechi Irrigation Canal",
-  "PALS Test 2 Module",
-  "Muvattupuzha Lift Canal",
-  "Kanjiramukku Distribution Canal",
-];
+const monitoredCanals = ["Ezhattumugam Irrigation Canal"];
 
 const heroImages = [
   "/Dewatermark_1774199757142.png",
@@ -28,22 +21,22 @@ const heroImages = [
 const governanceCards = [
   {
     title: "Real-Time Monitoring",
-    text: "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.",
+    text: "Continuous canal telemetry replaces manual site visits, so discharge anomalies are detected quickly and acted on early.",
     icon: Activity,
   },
   {
-    title: "Asset Governance",
-    text: "Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat.",
+    title: "Dual-Sensor Intelligence",
+    text: "Ultrasonic depth with Manning-based expected flow is cross-checked against Doppler-measured actual flow for blockage insight.",
     icon: Building2,
   },
   {
-    title: "Decision Intelligence",
-    text: "Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur.",
+    title: "Semi-Portable Field Design",
+    text: "Clamp-based, relocatable deployment allows one unit to be moved between critical canal sections as monitoring needs change.",
     icon: ChartNoAxesColumn,
   },
   {
-    title: "Compliance Readiness",
-    text: "Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.",
+    title: "Low-Cost Scalability",
+    text: "Off-the-shelf electronics and solar-backed operation enable practical scale-up across public irrigation networks.",
     icon: ShieldCheck,
   },
 ];
@@ -91,9 +84,9 @@ export default function HomePage() {
               Intelligent Irrigation Monitoring System
             </h1>
             <p className="mt-4 max-w-2xl text-sm text-white drop-shadow-[0_1px_4px_rgba(0,0,0,0.45)] md:text-base">
-              Unified monitoring for canal flow, depth, and operational status
-              across monitored structures in Kerala with data-backed
-              supervision.
+              An Intelligent Irrigation Management System combining hydraulic
+              engineering and embedded sensing to deliver live flow visibility,
+              faster blockage detection, and better water allocation decisions.
             </p>
             {/* <div className="mt-6 flex flex-wrap items-center gap-3">
               <Link
@@ -199,9 +192,9 @@ export default function HomePage() {
               Water Structures and River Basin Visual Maps
             </h2>
             <p className="mt-4 text-sm leading-relaxed text-[#355a80] md:text-base">
-              Dedicated map page for basin-wise structure references. You can
-              add multiple JPG map sheets and switch them by basin using a
-              simple selector interface.
+              A practical operations desk for irrigation authorities to view
+              monitored assets, inspect live status, and support time-sensitive
+              field decisions with one shared interface.
             </p>
             <Link
               href="/map"

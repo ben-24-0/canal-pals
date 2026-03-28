@@ -461,7 +461,7 @@ export default function UserCanalDashboard() {
               <p className="text-[10px] uppercase tracking-wide text-blue-700 font-semibold">
                 Live Height
               </p>
-              <p className="text-2xl font-bold text-blue-900 leading-tight">
+              <p className="text-2xl font-bold leading-tight water-level-gradient">
                 {currentHeight != null ? `${currentHeight.toFixed(2)} m` : "—"}
               </p>
               <p className="text-[11px] text-blue-800/90 mt-0.5">
@@ -813,7 +813,6 @@ export default function UserCanalDashboard() {
                   </LineChart>
                 </ResponsiveContainer>
               </div>
-
             </div>
           )}
         </CardContent>

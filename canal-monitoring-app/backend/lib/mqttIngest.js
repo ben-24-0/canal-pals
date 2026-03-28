@@ -21,7 +21,9 @@ const defaults = {
 const UNKNOWN_CANAL_WARN_INTERVAL_MS =
   parseInt(process.env.MQTT_UNKNOWN_CANAL_WARN_INTERVAL_MS, 10) || 60 * 1000;
 const LOG_ALL_READINGS =
-  String(process.env.MQTT_LOG_ALL_READINGS || process.env.NODE_ENV !== "production")
+  String(
+    process.env.MQTT_LOG_ALL_READINGS || process.env.NODE_ENV !== "production",
+  )
     .toLowerCase()
     .trim() === "true";
 
@@ -84,7 +86,9 @@ function logRejectedReading(reason) {
     const count = cached.count;
     const windowSeconds = Math.round(UNKNOWN_CANAL_WARN_INTERVAL_MS / 1000);
     const suffix = count > 1 ? ` (x${count} in last ${windowSeconds}s)` : "";
-    console.warn(`[MQTT] Reading rejected: Canal not found: ${canalId}${suffix}`);
+    console.warn(
+      `[MQTT] Reading rejected: Canal not found: ${canalId}${suffix}`,
+    );
     cached.count = 0;
     cached.lastWarnAt = now;
   }
@@ -330,16 +334,21 @@ async function publishDeviceSettings(deviceId, payload) {
   const message = JSON.stringify(payload || {});
 
   return new Promise((resolve) => {
-    publisherClient.publish(topic, message, { qos: 1, retain: false }, (error) => {
-      if (error) {
-        stats.lastError = error.message;
-        return resolve({ ok: false, message: error.message, topic });
-      }
+    publisherClient.publish(
+      topic,
+      message,
+      { qos: 1, retain: false },
+      (error) => {
+        if (error) {
+          stats.lastError = error.message;
+          return resolve({ ok: false, message: error.message, topic });
+        }
 
-      rememberDeviceSettings(deviceId, payload, topic);
+        rememberDeviceSettings(deviceId, payload, topic);
 
-      return resolve({ ok: true, topic, payload });
-    });
+        return resolve({ ok: true, topic, payload });
+      },
+    );
   });
 }
 
