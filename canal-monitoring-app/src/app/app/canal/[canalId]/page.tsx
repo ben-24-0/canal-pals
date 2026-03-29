@@ -37,40 +37,8 @@ const MiniMap = dynamic(() => import("@/components/map/MiniMap"), {
 const BACKEND_URL =
   process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://localhost:3001";
 
-const SEND_INTERVAL_OPTIONS_MS = (() => {
-  const values: number[] = [];
-  for (let seconds = 10; seconds <= 60; seconds += 10) {
-    values.push(seconds * 1000);
-  }
-  for (let minutes = 2; minutes <= 60; minutes += 1) {
-    values.push(minutes * 60 * 1000);
-  }
-  return values;
-})();
-
 const DEFAULT_SEND_INTERVAL_MS = 10000;
 const OFFLINE_EXTRA_BUFFER_MS = 2 * 60 * 1000;
-const FORCE_READ_COOLDOWN_MS = 10 * 1000;
-
-function formatInterval(ms: number): string {
-  if (ms < 60000) return `${Math.round(ms / 1000)} s`;
-  return `${Math.round(ms / 60000)} min`;
-}
-
-function getClosestIntervalIndex(ms: number): number {
-  let closestIndex = 0;
-  let closestDelta = Number.POSITIVE_INFINITY;
-
-  SEND_INTERVAL_OPTIONS_MS.forEach((candidate, idx) => {
-    const delta = Math.abs(candidate - ms);
-    if (delta < closestDelta) {
-      closestDelta = delta;
-      closestIndex = idx;
-    }
-  });
-
-  return closestIndex;
-}
 
 function getReadingTimestampMs(reading: CanalReading | null): number {
   if (!reading) return 0;
@@ -150,21 +118,11 @@ export default function UserCanalDashboard() {
 
   const [canal, setCanal] = useState<CanalInfo | null>(null);
   const [loading, setLoading] = useState(true);
-  const [savingSettings, setSavingSettings] = useState(false);
-  const [settingsMsg, setSettingsMsg] = useState<string | null>(null);
   const [polledReading, setPolledReading] = useState<CanalReading | null>(null);
-  const [timeline, setTimeline] = useState<TimelinePoint[]>([]);
-  const [sendIntervalMs, setSendIntervalMs] = useState(
-    DEFAULT_SEND_INTERVAL_MS,
-  );
   const [appliedIntervalMs, setAppliedIntervalMs] = useState(
     DEFAULT_SEND_INTERVAL_MS,
   );
-  const [sliderIndex, setSliderIndex] = useState(
-    getClosestIntervalIndex(DEFAULT_SEND_INTERVAL_MS),
-  );
-  const [forceReadBusy, setForceReadBusy] = useState(false);
-  const [lastForceReadAt, setLastForceReadAt] = useState(0);
+  const [timeline, setTimeline] = useState<TimelinePoint[]>([]);
 
   // SSE: live reading without polling
   const { reading, connected } = useCanalSSE(canalId);
@@ -217,11 +175,7 @@ export default function UserCanalDashboard() {
             ? fallbackInterval
             : DEFAULT_SEND_INTERVAL_MS;
 
-      const nearestIdx = getClosestIntervalIndex(targetInterval);
-      const nearestMs = SEND_INTERVAL_OPTIONS_MS[nearestIdx];
-      setSliderIndex(nearestIdx);
-      setSendIntervalMs(nearestMs);
-      setAppliedIntervalMs(nearestMs);
+      setAppliedIntervalMs(targetInterval);
     } catch (err) {
       console.error(err);
     }
@@ -328,85 +282,6 @@ export default function UserCanalDashboard() {
       ? Date.now() - ts <= offlineThresholdMs
       : false;
 
-  const publishSettings = useCallback(
-    async (
-      payload: Record<string, unknown>,
-      successMessage = "Settings published to device topic.",
-    ) => {
-      if (!canal) return false;
-
-      if (Object.keys(payload).length === 0) {
-        setSettingsMsg("Add at least one setting to publish.");
-        return false;
-      }
-
-      setSavingSettings(true);
-      setSettingsMsg(null);
-
-      try {
-        const res = await fetch(
-          `${BACKEND_URL}/api/esp32/settings/${canal.canalId}`,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(payload),
-          },
-        );
-
-        const j = await res.json().catch(() => ({}));
-        if (!res.ok) {
-          setSettingsMsg(j?.message || "Failed to publish settings.");
-          return false;
-        }
-
-        setSettingsMsg(successMessage);
-        return true;
-      } catch {
-        setSettingsMsg("Failed to publish settings.");
-        return false;
-      } finally {
-        setSavingSettings(false);
-      }
-    },
-    [canal],
-  );
-
-  const commitSendInterval = useCallback(async () => {
-    if (sendIntervalMs === appliedIntervalMs) return;
-    const ok = await publishSettings(
-      { sendIntervalMs },
-      `Send interval updated to ${formatInterval(sendIntervalMs)}.`,
-    );
-    if (ok) {
-      setAppliedIntervalMs(sendIntervalMs);
-    }
-  }, [sendIntervalMs, appliedIntervalMs, publishSettings]);
-
-  const handleForceRead = useCallback(async () => {
-    const now = Date.now();
-    const remainingMs = FORCE_READ_COOLDOWN_MS - (now - lastForceReadAt);
-    if (remainingMs > 0) {
-      const remainingSec = Math.ceil(remainingMs / 1000);
-      setSettingsMsg(`Please wait ${remainingSec}s before triggering again.`);
-      return;
-    }
-
-    setLastForceReadAt(now);
-    setForceReadBusy(true);
-
-    const sent = await publishSettings(
-      { forceReadNow: true },
-      "Measure command sent.",
-    );
-
-    if (!sent) {
-      setForceReadBusy(false);
-      return;
-    }
-
-    setForceReadBusy(false);
-  }, [lastForceReadAt, publishSettings]);
-
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -483,15 +358,6 @@ export default function UserCanalDashboard() {
                 }
                 icon={Droplets}
               />
-              <div className="py-2">
-                <button
-                  className="px-3 py-1.5 rounded-md border text-xs"
-                  onClick={handleForceRead}
-                  disabled={savingSettings || forceReadBusy}
-                >
-                  {forceReadBusy ? "Measuring..." : "Measure"}
-                </button>
-              </div>
               <MetricRow
                 label="Manning Velocity"
                 value={
@@ -646,59 +512,6 @@ export default function UserCanalDashboard() {
           </CardContent>
         </Card>
       </div>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Device Settings</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-3">
-            <div className="flex items-center justify-between gap-3 text-sm">
-              <span className="text-muted-foreground">Send interval</span>
-              <span className="font-medium">
-                {formatInterval(sendIntervalMs)}
-              </span>
-            </div>
-            <input
-              type="range"
-              className="w-full"
-              min={0}
-              max={SEND_INTERVAL_OPTIONS_MS.length - 1}
-              step={1}
-              value={sliderIndex}
-              onChange={(e) => {
-                const idx = Number(e.target.value);
-                const nextMs =
-                  SEND_INTERVAL_OPTIONS_MS[idx] ?? DEFAULT_SEND_INTERVAL_MS;
-                setSliderIndex(idx);
-                setSendIntervalMs(nextMs);
-              }}
-              onMouseUp={commitSendInterval}
-              onTouchEnd={commitSendInterval}
-              onKeyUp={commitSendInterval}
-            />
-            <div className="flex justify-between text-xs text-muted-foreground">
-              <span>10 s</span>
-              <span>1 min</span>
-              <span>60 min</span>
-            </div>
-          </div>
-
-          <div className="mt-4 flex flex-wrap gap-2">
-            <button
-              className="px-3 py-2 rounded-md border text-sm"
-              onClick={commitSendInterval}
-              disabled={savingSettings}
-            >
-              {savingSettings ? "Publishing..." : "Apply Interval"}
-            </button>
-          </div>
-
-          {settingsMsg ? (
-            <p className="mt-3 text-sm text-muted-foreground">{settingsMsg}</p>
-          ) : null}
-        </CardContent>
-      </Card>
 
       {/* Charts Section */}
       <Card>

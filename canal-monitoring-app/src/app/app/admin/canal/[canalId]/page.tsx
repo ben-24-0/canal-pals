@@ -36,6 +36,7 @@ import { Label } from "@/components/ui/label";
 import type { CanalInfo } from "@/types/canal";
 import { useCanalSSE } from "@/hooks/useCanalSSE";
 import dynamic from "next/dynamic";
+import tzLookup from "tz-lookup";
 
 const MiniMap = dynamic(() => import("@/components/map/MiniMap"), {
   ssr: false,
@@ -113,6 +114,28 @@ function resolveReadingTime(
   }
 
   return null;
+}
+
+function resolveTimeZoneFromCoordinates(
+  latitude: number,
+  longitude: number,
+): string {
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+  }
+
+  try {
+    return tzLookup(latitude, longitude);
+  } catch {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+  }
+}
+
+function csvEscape(value: string): string {
+  if (/[,"\n\r]/.test(value)) {
+    return `"${value.replace(/"/g, '""')}"`;
+  }
+  return value;
 }
 
 export default function AdminCanalDashboard() {
@@ -624,27 +647,38 @@ export default function AdminCanalDashboard() {
       return;
     }
 
-    const csvTimestampFormatter = new Intl.DateTimeFormat("en-GB", {
-      timeZone: "Etc/GMT",
-      day: "numeric",
-      month: "numeric",
+    const [canalLon = Number.NaN, canalLat = Number.NaN] =
+      canal?.location.coordinates ?? [];
+    const canalTimeZone = resolveTimeZoneFromCoordinates(canalLat, canalLon);
+
+    const csvDateFormatter = new Intl.DateTimeFormat("en-CA", {
+      timeZone: canalTimeZone,
       year: "numeric",
-      hour: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    });
+    const csvTimeFormatter = new Intl.DateTimeFormat("en-GB", {
+      timeZone: canalTimeZone,
+      hour: "2-digit",
       minute: "2-digit",
       second: "2-digit",
-      hour12: true,
+      hour12: false,
     });
 
     const rows = [
-      ["Timestamp", "Height (m)", "Flow Rate (m3/s)"],
+      ["Date", "Time", "Height (m)", "Flow Rate (m3/s)", "Time Zone"],
       ...filteredTimeline.map((row) => [
-        csvTimestampFormatter.format(new Date(row.timestamp)),
+        csvDateFormatter.format(new Date(row.timestamp)),
+        csvTimeFormatter.format(new Date(row.timestamp)),
         row.height.toFixed(3),
         row.flowRate.toFixed(3),
+        canalTimeZone,
       ]),
     ];
 
-    const csv = rows.map((row) => row.join(",")).join("\n");
+    const csv = rows
+      .map((row) => row.map((cell) => csvEscape(String(cell))).join(","))
+      .join("\n");
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
