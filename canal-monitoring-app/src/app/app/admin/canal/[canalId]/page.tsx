@@ -1224,57 +1224,59 @@ export default function AdminCanalDashboard() {
             </div>
           </div>
 
-          <div className="rounded-lg border p-3 space-y-3">
-            <div className="flex items-center justify-between gap-3 text-sm">
-              <span className="text-muted-foreground">
-                Device send interval
-              </span>
-              <span className="font-medium">
-                {formatInterval(sendIntervalMs)}
-              </span>
-            </div>
-            <input
-              type="range"
-              className="w-full"
-              min={0}
-              max={SEND_INTERVAL_OPTIONS_MS.length - 1}
-              step={1}
-              value={sliderIndex}
-              onChange={(e) => {
-                const idx = Number(e.target.value);
-                const nextMs =
-                  SEND_INTERVAL_OPTIONS_MS[idx] ?? DEFAULT_SEND_INTERVAL_MS;
-                setSliderIndex(idx);
-                setSendIntervalMs(nextMs);
-              }}
-              onMouseUp={commitSendInterval}
-              onTouchEnd={commitSendInterval}
-              onKeyUp={commitSendInterval}
-            />
-            <div className="flex justify-between text-xs text-muted-foreground">
-              <span>10 s</span>
-              <span>1 min</span>
-              <span>60 min</span>
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={commitSendInterval}
-                disabled={sendingDeviceSettings}
-              >
-                {sendingDeviceSettings ? "Publishing..." : "Apply Interval"}
-              </Button>
-              <span className="text-xs text-muted-foreground">
-                Topic: canal/{canal.esp32DeviceId ?? "<device-id>"}/settings
-                (retained)
-              </span>
-            </div>
-          </div>
-
           {/* Edit form - only show when in edit mode */}
           {isEditMode && (
             <>
+              <div className="rounded-lg border p-3 space-y-3">
+                <div className="flex items-center justify-between gap-3 text-sm">
+                  <span className="text-muted-foreground">
+                    Device send interval
+                  </span>
+                  <span className="font-medium">
+                    {formatInterval(sendIntervalMs)}
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  className="w-full"
+                  min={0}
+                  max={SEND_INTERVAL_OPTIONS_MS.length - 1}
+                  step={1}
+                  value={sliderIndex}
+                  onChange={(e) => {
+                    const idx = Number(e.target.value);
+                    const nextMs =
+                      SEND_INTERVAL_OPTIONS_MS[idx] ?? DEFAULT_SEND_INTERVAL_MS;
+                    setSliderIndex(idx);
+                    setSendIntervalMs(nextMs);
+                  }}
+                  onMouseUp={commitSendInterval}
+                  onTouchEnd={commitSendInterval}
+                  onKeyUp={commitSendInterval}
+                />
+                <div className="flex justify-between text-xs text-muted-foreground">
+                  <span>10 s</span>
+                  <span>1 min</span>
+                  <span>60 min</span>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={commitSendInterval}
+                    disabled={sendingDeviceSettings}
+                  >
+                    {sendingDeviceSettings
+                      ? "Publishing..."
+                      : "Apply Interval"}
+                  </Button>
+                  <span className="text-xs text-muted-foreground">
+                    Topic: canal/{canal.esp32DeviceId ?? "<device-id>"}/settings
+                    (retained)
+                  </span>
+                </div>
+              </div>
+
               {/* Sensor type + active */}
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
