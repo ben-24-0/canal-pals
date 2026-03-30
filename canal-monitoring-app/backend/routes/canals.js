@@ -5,6 +5,7 @@ const CanalReading = require("../models/CanalReading");
 const mqttIngest = require("../lib/mqttIngest");
 
 const router = express.Router();
+const DEFAULT_SEND_INTERVAL_MS = 30 * 60 * 1000;
 
 // TEST: MongoDB connection and canal-data collection
 router.get("/test-db", async (req, res) => {
@@ -59,10 +60,25 @@ router.get("/", async (req, res) => {
       .skip(skip)
       .sort({ name: 1 });
 
+    const canalsWithIntervals = canals.map((canal) => {
+      const plain = canal.toObject();
+      const effectiveSendIntervalMs = canal.esp32DeviceId
+        ? mqttIngest.getEffectiveSendIntervalMs(
+            canal.esp32DeviceId,
+            DEFAULT_SEND_INTERVAL_MS,
+          )
+        : DEFAULT_SEND_INTERVAL_MS;
+
+      return {
+        ...plain,
+        effectiveSendIntervalMs,
+      };
+    });
+
     const total = await Canal.countDocuments(query);
 
     res.json({
-      canals,
+      canals: canalsWithIntervals,
       pagination: {
         page: parseInt(page),
         limit: parseInt(limit),
@@ -106,14 +122,10 @@ router.get("/:canalId", async (req, res) => {
         ).getTime()
       : 0;
 
-    const deviceSettings = canal.esp32DeviceId
-      ? mqttIngest.getDeviceSettings(canal.esp32DeviceId)
-      : null;
-    const configuredSendIntervalMs = Number(deviceSettings?.sendIntervalMs);
-    const effectiveSendIntervalMs =
-      Number.isFinite(configuredSendIntervalMs) && configuredSendIntervalMs > 0
-        ? configuredSendIntervalMs
-        : 10000;
+    const effectiveSendIntervalMs = mqttIngest.getEffectiveSendIntervalMs(
+      canal.esp32DeviceId,
+      DEFAULT_SEND_INTERVAL_MS,
+    );
     const onlineThresholdMs = effectiveSendIntervalMs + 2 * 60 * 1000;
 
     const isOnline =
@@ -125,6 +137,8 @@ router.get("/:canalId", async (req, res) => {
       canal,
       latestReading,
       isOnline,
+      effectiveSendIntervalMs,
+      onlineThresholdMs,
     });
   } catch (error) {
     console.error("Error fetching canal:", error);

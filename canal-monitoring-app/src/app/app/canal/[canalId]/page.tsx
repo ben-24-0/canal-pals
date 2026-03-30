@@ -37,7 +37,7 @@ const MiniMap = dynamic(() => import("@/components/map/MiniMap"), {
 const BACKEND_URL =
   process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://localhost:3001";
 
-const DEFAULT_SEND_INTERVAL_MS = 10000;
+const DEFAULT_SEND_INTERVAL_MS = 30 * 60 * 1000;
 const OFFLINE_EXTRA_BUFFER_MS = 2 * 60 * 1000;
 
 function getReadingTimestampMs(reading: CanalReading | null): number {
@@ -82,6 +82,15 @@ interface TimelinePoint {
   flowRate: number;
 }
 
+type GraphRangeMode = "3days" | "week" | "month";
+
+function getRangeStartMs(mode: GraphRangeMode): number {
+  const now = Date.now();
+  if (mode === "week") return now - 7 * 24 * 60 * 60 * 1000;
+  if (mode === "month") return now - 30 * 24 * 60 * 60 * 1000;
+  return now - 3 * 24 * 60 * 60 * 1000;
+}
+
 function resolveReadingTime(
   reading: {
     timestamp?: string | number | Date;
@@ -123,6 +132,8 @@ export default function UserCanalDashboard() {
     DEFAULT_SEND_INTERVAL_MS,
   );
   const [timeline, setTimeline] = useState<TimelinePoint[]>([]);
+  const [graphRangeMode, setGraphRangeMode] =
+    useState<GraphRangeMode>("3days");
 
   // SSE: live reading without polling
   const { reading, connected } = useCanalSSE(canalId);
@@ -165,11 +176,14 @@ export default function UserCanalDashboard() {
       const res = await fetch(`${BACKEND_URL}/api/esp32/settings/${canalId}`);
       if (!res.ok) return;
       const body = await res.json().catch(() => null);
+      const effectiveInterval = Number(body?.effectiveSendIntervalMs);
       const remoteInterval = Number(body?.settings?.sendIntervalMs);
       const fallbackInterval = Number(body?.fallbackSendIntervalMs);
 
       const targetInterval =
-        Number.isFinite(remoteInterval) && remoteInterval > 0
+        Number.isFinite(effectiveInterval) && effectiveInterval > 0
+          ? effectiveInterval
+          : Number.isFinite(remoteInterval) && remoteInterval > 0
           ? remoteInterval
           : Number.isFinite(fallbackInterval) && fallbackInterval > 0
             ? fallbackInterval
@@ -242,6 +256,11 @@ export default function UserCanalDashboard() {
       return next.length > 180 ? next.slice(-180) : next;
     });
   }, [reading]);
+
+  const filteredTimeline = useMemo(() => {
+    const startMs = getRangeStartMs(graphRangeMode);
+    return timeline.filter((point) => point.timestamp >= startMs);
+  }, [timeline, graphRangeMode]);
 
   const status = activeReading?.status ?? "STOPPED";
   const statusCfg = STATUS_CONFIG[status];
@@ -458,7 +477,7 @@ export default function UserCanalDashboard() {
                     </tr>
                   </thead>
                   <tbody>
-                    {timeline.length === 0 ? (
+                    {filteredTimeline.length === 0 ? (
                       <tr>
                         <td
                           className="px-3 py-3 text-muted-foreground"
@@ -468,7 +487,7 @@ export default function UserCanalDashboard() {
                         </td>
                       </tr>
                     ) : (
-                      timeline
+                      filteredTimeline
                         .slice(-10)
                         .reverse()
                         .map((row) => (
@@ -516,13 +535,38 @@ export default function UserCanalDashboard() {
       {/* Charts Section */}
       <Card>
         <CardHeader>
-          <div className="flex items-center gap-2">
-            <BarChart3 className="w-4 h-4 text-primary" />
-            <CardTitle className="text-base">Water Trend Analysis</CardTitle>
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-center gap-2">
+              <BarChart3 className="w-4 h-4 text-primary" />
+              <CardTitle className="text-base">Water Trend Analysis</CardTitle>
+            </div>
+            <div className="flex items-center gap-2 flex-wrap">
+              <Badge
+                variant={graphRangeMode === "3days" ? "default" : "outline"}
+                className="cursor-pointer"
+                onClick={() => setGraphRangeMode("3days")}
+              >
+                3 Days
+              </Badge>
+              <Badge
+                variant={graphRangeMode === "week" ? "default" : "outline"}
+                className="cursor-pointer"
+                onClick={() => setGraphRangeMode("week")}
+              >
+                Week
+              </Badge>
+              <Badge
+                variant={graphRangeMode === "month" ? "default" : "outline"}
+                className="cursor-pointer"
+                onClick={() => setGraphRangeMode("month")}
+              >
+                Month
+              </Badge>
+            </div>
           </div>
         </CardHeader>
         <CardContent>
-          {timeline.length === 0 ? (
+          {filteredTimeline.length === 0 ? (
             <div className="h-64 flex items-center justify-center text-sm text-muted-foreground">
               Waiting for live data to render charts...
             </div>
@@ -531,7 +575,7 @@ export default function UserCanalDashboard() {
               <div>
                 <h3 className="text-sm font-semibold mb-2">Height vs Time</h3>
                 <ResponsiveContainer width="100%" height={260}>
-                  <AreaChart data={timeline}>
+                  <AreaChart data={filteredTimeline}>
                     <CartesianGrid
                       strokeDasharray="3 3"
                       className="stroke-border"
@@ -582,7 +626,7 @@ export default function UserCanalDashboard() {
                   Flow Rate vs Time
                 </h3>
                 <ResponsiveContainer width="100%" height={260}>
-                  <LineChart data={timeline}>
+                  <LineChart data={filteredTimeline}>
                     <CartesianGrid
                       strokeDasharray="3 3"
                       className="stroke-border"

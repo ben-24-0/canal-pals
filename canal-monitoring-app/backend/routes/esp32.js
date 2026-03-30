@@ -6,6 +6,7 @@ const { processRegisterMessage } = require("../lib/readingProcessor");
 const mqttIngest = require("../lib/mqttIngest");
 
 const router = express.Router();
+const DEFAULT_SEND_INTERVAL_MS = 30 * 60 * 1000;
 
 // Middleware to validate ESP32 device ID
 const validateDeviceId = (req, res, next) => {
@@ -260,13 +261,18 @@ router.get("/settings/:canalId", async (req, res) => {
     }
 
     const deviceSettings = mqttIngest.getDeviceSettings(canal.esp32DeviceId);
+    const effectiveSendIntervalMs = mqttIngest.getEffectiveSendIntervalMs(
+      canal.esp32DeviceId,
+      DEFAULT_SEND_INTERVAL_MS,
+    );
 
     return res.json({
       success: true,
       canalId,
       deviceId: canal.esp32DeviceId,
       settings: deviceSettings || null,
-      fallbackSendIntervalMs: 10000,
+      fallbackSendIntervalMs: DEFAULT_SEND_INTERVAL_MS,
+      effectiveSendIntervalMs,
     });
   } catch (error) {
     console.error("Error getting device settings:", error);

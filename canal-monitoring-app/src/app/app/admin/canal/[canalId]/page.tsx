@@ -63,7 +63,7 @@ interface TimelinePoint {
 
 const DEFAULT_ROWS_PER_PAGE = 25;
 const ROWS_PER_PAGE_OPTIONS = [10, 25, 50, 100] as const;
-const DEFAULT_SEND_INTERVAL_MS = 10000;
+const DEFAULT_SEND_INTERVAL_MS = 30 * 60 * 1000;
 const OFFLINE_EXTRA_BUFFER_MS = 2 * 60 * 1000;
 const FORCE_READ_COOLDOWN_MS = 10 * 1000;
 const SEND_INTERVAL_OPTIONS_MS = (() => {
@@ -138,6 +138,16 @@ function csvEscape(value: string): string {
   return value;
 }
 
+type GraphRangeMode = "3days" | "week" | "month" | "custom";
+
+function toDateInputValue(date: Date): string {
+  return date.toISOString().slice(0, 10);
+}
+
+function getDateDaysAgo(days: number): string {
+  return toDateInputValue(new Date(Date.now() - days * 24 * 60 * 60 * 1000));
+}
+
 export default function AdminCanalDashboard() {
   const params = useParams();
   const router = useRouter();
@@ -147,13 +157,10 @@ export default function AdminCanalDashboard() {
   const [loading, setLoading] = useState(true);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyError, setHistoryError] = useState<string | null>(null);
-  const [fromDate, setFromDate] = useState(() => {
-    const d = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
-    return d.toISOString().slice(0, 10);
-  });
-  const [toDate, setToDate] = useState(() =>
-    new Date().toISOString().slice(0, 10),
-  );
+  const [graphRangeMode, setGraphRangeMode] =
+    useState<GraphRangeMode>("3days");
+  const [fromDate, setFromDate] = useState(() => getDateDaysAgo(3));
+  const [toDate, setToDate] = useState(() => toDateInputValue(new Date()));
   const [rowsPerPage, setRowsPerPage] = useState<number>(DEFAULT_ROWS_PER_PAGE);
   const [currentPage, setCurrentPage] = useState(1);
   const [sendingDeviceSettings, setSendingDeviceSettings] = useState(false);
@@ -276,11 +283,14 @@ export default function AdminCanalDashboard() {
       if (!res.ok) return;
 
       const body = await res.json().catch(() => null);
+      const effectiveInterval = Number(body?.effectiveSendIntervalMs);
       const remoteInterval = Number(body?.settings?.sendIntervalMs);
       const fallbackInterval = Number(body?.fallbackSendIntervalMs);
 
       const targetInterval =
-        Number.isFinite(remoteInterval) && remoteInterval > 0
+        Number.isFinite(effectiveInterval) && effectiveInterval > 0
+          ? effectiveInterval
+          : Number.isFinite(remoteInterval) && remoteInterval > 0
           ? remoteInterval
           : Number.isFinite(fallbackInterval) && fallbackInterval > 0
             ? fallbackInterval
@@ -583,6 +593,19 @@ export default function AdminCanalDashboard() {
       setSaving(false);
     }
   };
+
+  const applyGraphRangeMode = useCallback((mode: Exclude<GraphRangeMode, "custom">) => {
+    const today = new Date();
+    const nextTo = toDateInputValue(today);
+
+    let daysBack = 3;
+    if (mode === "week") daysBack = 7;
+    if (mode === "month") daysBack = 30;
+
+    setGraphRangeMode(mode);
+    setToDate(nextTo);
+    setFromDate(getDateDaysAgo(daysBack));
+  }, []);
 
   const rangeStartTs = fromDate
     ? new Date(`${fromDate}T00:00:00.000Z`).getTime()
@@ -939,7 +962,10 @@ export default function AdminCanalDashboard() {
                   id="fromDate"
                   type="date"
                   value={fromDate}
-                  onChange={(e) => setFromDate(e.target.value)}
+                  onChange={(e) => {
+                    setGraphRangeMode("custom");
+                    setFromDate(e.target.value);
+                  }}
                   className="h-9 w-full sm:w-auto"
                 />
               </div>
@@ -954,7 +980,10 @@ export default function AdminCanalDashboard() {
                   id="toDate"
                   type="date"
                   value={toDate}
-                  onChange={(e) => setToDate(e.target.value)}
+                  onChange={(e) => {
+                    setGraphRangeMode("custom");
+                    setToDate(e.target.value);
+                  }}
                   className="h-9 w-full sm:w-auto"
                 />
               </div>
@@ -1256,7 +1285,7 @@ export default function AdminCanalDashboard() {
                 />
                 <div className="flex justify-between text-xs text-muted-foreground">
                   <span>10 s</span>
-                  <span>1 min</span>
+                  <span>30 min</span>
                   <span>60 min</span>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
@@ -1546,9 +1575,37 @@ export default function AdminCanalDashboard() {
       {/* Charts */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-base flex items-center gap-2">
-            <BarChart3 className="w-4 h-4 text-primary" /> Trend Analysis
-          </CardTitle>
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <CardTitle className="text-base flex items-center gap-2">
+              <BarChart3 className="w-4 h-4 text-primary" /> Trend Analysis
+            </CardTitle>
+            <div className="flex items-center gap-2 flex-wrap">
+              <Button
+                size="sm"
+                variant={graphRangeMode === "3days" ? "default" : "outline"}
+                onClick={() => applyGraphRangeMode("3days")}
+              >
+                3 Days
+              </Button>
+              <Button
+                size="sm"
+                variant={graphRangeMode === "week" ? "default" : "outline"}
+                onClick={() => applyGraphRangeMode("week")}
+              >
+                Week
+              </Button>
+              <Button
+                size="sm"
+                variant={graphRangeMode === "month" ? "default" : "outline"}
+                onClick={() => applyGraphRangeMode("month")}
+              >
+                Month
+              </Button>
+              {graphRangeMode === "custom" && (
+                <Badge variant="outline">Custom</Badge>
+              )}
+            </div>
+          </div>
         </CardHeader>
         <CardContent>
           {filteredTimeline.length === 0 ? (

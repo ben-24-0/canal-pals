@@ -43,6 +43,8 @@ export interface CanalInfo {
   upperLimit?: number;
   /** Flow rate lower threshold - below triggers LOW_FLOW */
   lowerLimit?: number;
+  /** Effective device send interval in milliseconds (runtime config). */
+  effectiveSendIntervalMs?: number;
   createdAt: string;
   updatedAt?: string;
 }
