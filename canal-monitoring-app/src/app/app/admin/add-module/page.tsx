@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { useSession } from "next-auth/react";
 import { ArrowLeft, ArrowRight, Check, Loader2 } from "lucide-react";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -9,7 +10,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Badge } from "@/components/ui/badge";
 
 const BACKEND_URL =
   process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:3001";
@@ -65,6 +65,8 @@ const DEFAULT_FORM: FormData = {
 
 export default function AddModulePage() {
   const router = useRouter();
+  const { data: session } = useSession();
+  const apiToken = session?.user?.apiToken || "";
   const [step, setStep] = useState(0);
   const [form, setForm] = useState<FormData>(DEFAULT_FORM);
   const [submitting, setSubmitting] = useState(false);
@@ -92,6 +94,11 @@ export default function AddModulePage() {
   };
 
   const handleSubmit = async () => {
+    if (!apiToken) {
+      setError("Session token missing. Please sign out and sign in again.");
+      return;
+    }
+
     setSubmitting(true);
     setError(null);
 
@@ -126,7 +133,10 @@ export default function AddModulePage() {
     try {
       const res = await fetch(`${BACKEND_URL}/api/canals`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${apiToken}`,
+        },
         body: JSON.stringify(body),
       });
 

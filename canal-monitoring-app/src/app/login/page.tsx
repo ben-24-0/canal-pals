@@ -5,6 +5,8 @@ import { signIn } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 
+const SHOW_TRANSITION_NOTICE = true;
+
 export default function LoginPage() {
   const router = useRouter();
   const [email, setEmail] = useState("");
@@ -56,6 +58,13 @@ export default function LoginPage() {
           </p>
         </div>
 
+        {SHOW_TRANSITION_NOTICE && (
+          <div className="mb-4 rounded-lg border border-amber-300/60 bg-amber-100/50 px-4 py-3 text-xs text-amber-900 dark:border-amber-800/60 dark:bg-amber-950/20 dark:text-amber-200">
+            Temporary notice: legacy demo accounts have been disabled. Please
+            create your own account if you do not have one yet.
+          </div>
+        )}
+
         <form onSubmit={handleSubmit} className="flex flex-col gap-4">
           <div className="flex flex-col gap-1">
             <label
@@ -71,7 +80,7 @@ export default function LoginPage() {
               required
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              placeholder="admin@canal.io"
+              placeholder="you@example.com"
               className="rounded-lg border border-border bg-background px-4 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
             />
           </div>
@@ -109,31 +118,6 @@ export default function LoginPage() {
             {loading ? "Signing in…" : "Sign in"}
           </button>
         </form>
-
-        <div className="mt-6 text-center text-xs text-muted-foreground">
-          <span>Demo — </span>
-          <button
-            type="button"
-            onClick={() => {
-              setEmail("admin@canal.io");
-              setPassword("admin123");
-            }}
-            className="underline hover:text-foreground"
-          >
-            Admin
-          </button>
-          <span> / </span>
-          <button
-            type="button"
-            onClick={() => {
-              setEmail("user@canal.io");
-              setPassword("user123");
-            }}
-            className="underline hover:text-foreground"
-          >
-            User
-          </button>
-        </div>
 
         <div className="mt-4 text-center">
           <Link

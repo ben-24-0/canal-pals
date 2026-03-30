@@ -1,6 +1,5 @@
 import { auth } from "@/auth";
 import { NextResponse } from "next/server";
-import type { NextRequest } from "next/server";
 
 export default auth((req) => {
   const { nextUrl } = req;
@@ -9,6 +8,9 @@ export default auth((req) => {
 
   const isAppRoute = nextUrl.pathname.startsWith("/app");
   const isAdminRoute = nextUrl.pathname.startsWith("/app/admin");
+  const isSuperAdminRoute = nextUrl.pathname.startsWith(
+    "/app/admin/super-admin",
+  );
   const isLoginRoute = nextUrl.pathname === "/login";
 
   // Unauthenticated user tries to access protected /app/* → redirect to /login
@@ -21,8 +23,13 @@ export default auth((req) => {
     return NextResponse.redirect(new URL("/app", nextUrl));
   }
 
-  // Non-admin users cannot access admin-only routes.
-  if (isAdminRoute && userRole !== "admin") {
+  // Super-admin route requires superadmin role.
+  if (isSuperAdminRoute && userRole !== "superadmin") {
+    return NextResponse.redirect(new URL("/app", nextUrl));
+  }
+
+  // Non-admin/non-superadmin users cannot access admin-only routes.
+  if (isAdminRoute && userRole !== "admin" && userRole !== "superadmin") {
     return NextResponse.redirect(new URL("/app", nextUrl));
   }
 

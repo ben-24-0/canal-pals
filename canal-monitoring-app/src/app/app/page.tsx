@@ -25,8 +25,9 @@ const BACKEND_URL =
   process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:3001";
 
 export default function CanalModulesHub() {
-  const { data: session } = useSession();
-  const isAdmin = session?.user?.role === "admin";
+  const { data: session, status } = useSession();
+  const isAdmin =
+    session?.user?.role === "admin" || session?.user?.role === "superadmin";
 
   const [canals, setCanals] = useState<CanalInfo[]>([]);
   const [loading, setLoading] = useState(true);
@@ -52,12 +53,23 @@ export default function CanalModulesHub() {
     useCanalGroups();
 
   useEffect(() => {
-    fetch(`${BACKEND_URL}/api/canals?active=true&limit=200`)
+    if (status === "loading") return;
+
+    const query = new URLSearchParams({
+      active: "true",
+      limit: "200",
+    });
+
+    if (session?.user?.id) {
+      query.set("viewerUserId", session.user.id);
+    }
+
+    fetch(`${BACKEND_URL}/api/canals?${query.toString()}`)
       .then((r) => r.json())
       .then((json) => setCanals(json.canals ?? []))
       .catch(console.error)
       .finally(() => setLoading(false));
-  }, []);
+  }, [session?.user?.id, status]);
 
   const filtered = canals.filter((c) => {
     if (c.type !== "irrigation") return false;

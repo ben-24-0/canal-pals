@@ -1,8 +1,10 @@
 const express = require("express");
 const bcrypt = require("bcryptjs");
 const User = require("../models/User");
+const { issueApiToken } = require("../middleware/apiAuth");
 
 const router = express.Router();
+const LEGACY_DISABLED_EMAILS = new Set(["admin@canal.io", "user@canal.io"]);
 
 // POST /api/auth/register — create a new user account
 router.post("/register", async (req, res) => {
@@ -17,6 +19,14 @@ router.post("/register", async (req, res) => {
 
     const normalizedEmail = String(email).toLowerCase().trim();
     const trimmedName = String(name).trim();
+
+    if (LEGACY_DISABLED_EMAILS.has(normalizedEmail)) {
+      return res.status(403).json({
+        error: "This email is reserved",
+        message:
+          "Legacy demo accounts are disabled. Please use a personal or official account email.",
+      });
+    }
 
     if (trimmedName.length < 2) {
       return res
@@ -43,14 +53,18 @@ router.post("/register", async (req, res) => {
       email: normalizedEmail,
       passwordHash,
       role: "user",
+      assignedCanals: [],
       favouriteCanals: [],
     });
+
+    const apiToken = issueApiToken(user);
 
     return res.status(201).json({
       id: user._id.toString(),
       email: user.email,
       name: user.name,
       role: user.role,
+      apiToken,
       message: "Account created successfully",
     });
   } catch (error) {
@@ -68,7 +82,17 @@ router.post("/login", async (req, res) => {
       return res.status(400).json({ error: "Email and password are required" });
     }
 
-    const user = await User.findOne({ email: email.toLowerCase().trim() });
+    const normalizedEmail = String(email).toLowerCase().trim();
+
+    if (LEGACY_DISABLED_EMAILS.has(normalizedEmail)) {
+      return res.status(403).json({
+        error: "Legacy account disabled",
+        message:
+          "This legacy demo account has been disabled. Please create a new account.",
+      });
+    }
+
+    const user = await User.findOne({ email: normalizedEmail });
     if (!user) {
       // Intentionally vague — don't reveal whether email exists
       return res.status(401).json({ error: "Invalid credentials" });
@@ -80,11 +104,14 @@ router.post("/login", async (req, res) => {
     }
 
     // Return user profile (never return passwordHash)
+    const apiToken = issueApiToken(user);
+
     return res.json({
       id: user._id.toString(),
       email: user.email,
       name: user.name,
       role: user.role,
+      apiToken,
     });
   } catch (error) {
     console.error("Login error:", error);

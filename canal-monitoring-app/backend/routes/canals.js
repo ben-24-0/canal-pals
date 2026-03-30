@@ -3,12 +3,14 @@ const { body, validationResult } = require("express-validator");
 const Canal = require("../models/Canal");
 const CanalReading = require("../models/CanalReading");
 const mqttIngest = require("../lib/mqttIngest");
+const { getViewerContext } = require("../lib/adminAccess");
+const { requireApiAuth, requireRoles } = require("../middleware/apiAuth");
 
 const router = express.Router();
 const DEFAULT_SEND_INTERVAL_MS = 30 * 60 * 1000;
 
 // TEST: MongoDB connection and canal-data collection
-router.get("/test-db", async (req, res) => {
+router.get("/test-db", requireApiAuth, requireRoles("superadmin"), async (req, res) => {
   try {
     // Try to create a test document
     const testCanal = new Canal({
@@ -41,7 +43,7 @@ router.get("/test-db", async (req, res) => {
 // GET /api/canals - Get all canals
 router.get("/", async (req, res) => {
   try {
-    const { active, type, limit = 50, page = 1 } = req.query;
+    const { active, type, limit = 50, page = 1, viewerUserId } = req.query;
 
     // By default, show only active canals so deactivated canals are hidden.
     let query = { isActive: true };
@@ -50,6 +52,11 @@ router.get("/", async (req, res) => {
     }
     if (type) {
       query.type = type;
+    }
+
+    const viewer = await getViewerContext(viewerUserId);
+    if (viewer.role === "admin") {
+      query.canalId = { $in: viewer.accessibleCanalIds };
     }
 
     const skip = (parseInt(page) - 1) * parseInt(limit);
@@ -99,9 +106,22 @@ router.get("/", async (req, res) => {
 router.get("/:canalId", async (req, res) => {
   try {
     const { canalId } = req.params;
+    const viewerUserId = req.query.viewerUserId;
+    const normalizedCanalId = canalId.toLowerCase().trim();
+
+    const viewer = await getViewerContext(viewerUserId);
+    if (
+      viewer.role === "admin" &&
+      !viewer.accessibleCanalIds.includes(normalizedCanalId)
+    ) {
+      return res.status(403).json({
+        error: "Forbidden",
+        message: "This admin account does not have access to the requested canal",
+      });
+    }
 
     const canal = await Canal.findOne({
-      canalId: canalId.toLowerCase().trim(),
+      canalId: normalizedCanalId,
     }).select("-__v");
 
     if (!canal) {
@@ -152,6 +172,8 @@ router.get("/:canalId", async (req, res) => {
 // POST /api/canals - Create new canal
 router.post(
   "/",
+  requireApiAuth,
+  requireRoles("admin", "superadmin"),
   [
     body("canalId")
       .isString()
@@ -262,6 +284,8 @@ router.post(
 // PUT /api/canals/:canalId - Update canal
 router.put(
   "/:canalId",
+  requireApiAuth,
+  requireRoles("admin", "superadmin"),
   [
     body("name")
       .optional()
@@ -389,7 +413,11 @@ router.put(
 );
 
 // DELETE /api/canals/:canalId - Delete canal (soft delete)
-router.delete("/:canalId", async (req, res) => {
+router.delete(
+  "/:canalId",
+  requireApiAuth,
+  requireRoles("admin", "superadmin"),
+  async (req, res) => {
   try {
     const { canalId } = req.params;
 
@@ -426,10 +454,30 @@ router.delete("/:canalId", async (req, res) => {
 router.get("/:canalId/readings", async (req, res) => {
   try {
     const { canalId } = req.params;
-    const { limit = 50, page = 1, startDate, endDate, status } = req.query;
+    const {
+      limit = 50,
+      page = 1,
+      startDate,
+      endDate,
+      status,
+      viewerUserId,
+    } = req.query;
+
+    const normalizedCanalId = canalId.toLowerCase().trim();
+
+    const viewer = await getViewerContext(viewerUserId);
+    if (
+      viewer.role === "admin" &&
+      !viewer.accessibleCanalIds.includes(normalizedCanalId)
+    ) {
+      return res.status(403).json({
+        error: "Forbidden",
+        message: "This admin account does not have access to the requested canal",
+      });
+    }
 
     // Build query
-    let query = { canalId: canalId.toLowerCase().trim() };
+    let query = { canalId: normalizedCanalId };
 
     if (startDate || endDate) {
       query.timestamp = {};

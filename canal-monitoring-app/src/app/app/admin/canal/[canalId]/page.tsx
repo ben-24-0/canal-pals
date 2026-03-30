@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback, useMemo } from "react";
 import { useParams, useRouter } from "next/navigation";
+import { useSession } from "next-auth/react";
 import {
   Gauge,
   Settings2,
@@ -151,6 +152,8 @@ function getDateDaysAgo(days: number): string {
 export default function AdminCanalDashboard() {
   const params = useParams();
   const router = useRouter();
+  const { data: session } = useSession();
+  const apiToken = session?.user?.apiToken || "";
   const canalId = params.canalId as string;
 
   const [canal, setCanal] = useState<CanalInfo | null>(null);
@@ -184,7 +187,13 @@ export default function AdminCanalDashboard() {
 
   const fetchCanal = useCallback(async () => {
     try {
-      const res = await fetch(`${BACKEND_URL}/api/canals/${canalId}`);
+      const query = new URLSearchParams();
+      if (session?.user?.id) {
+        query.set("viewerUserId", session.user.id);
+      }
+
+      const suffix = query.toString() ? `?${query.toString()}` : "";
+      const res = await fetch(`${BACKEND_URL}/api/canals/${canalId}${suffix}`);
       if (res.ok) {
         const j = await res.json();
         setCanal(j.canal ?? j);
@@ -194,7 +203,7 @@ export default function AdminCanalDashboard() {
     } finally {
       setLoading(false);
     }
-  }, [canalId]);
+  }, [canalId, session?.user?.id]);
 
   const fetchReadings = useCallback(
     async (startDate?: string, endDate?: string) => {
@@ -206,6 +215,10 @@ export default function AdminCanalDashboard() {
           limit: "2000",
           page: "1",
         });
+
+        if (session?.user?.id) {
+          query.set("viewerUserId", session.user.id);
+        }
 
         if (startDate) {
           query.set("startDate", `${startDate}T00:00:00.000Z`);
@@ -274,7 +287,7 @@ export default function AdminCanalDashboard() {
         setHistoryLoading(false);
       }
     },
-    [canalId],
+    [canalId, session?.user?.id],
   );
 
   const fetchDeviceSettings = useCallback(async () => {
@@ -313,6 +326,10 @@ export default function AdminCanalDashboard() {
       successMessage = "Settings published.",
     ) => {
       if (!canal) return false;
+      if (!apiToken) {
+        setDeviceSettingsMsg("Session token missing. Please sign in again.");
+        return false;
+      }
       if (Object.keys(payload).length === 0) {
         setDeviceSettingsMsg("Add at least one setting to publish.");
         return false;
@@ -326,7 +343,10 @@ export default function AdminCanalDashboard() {
           `${BACKEND_URL}/api/esp32/settings/${encodeURIComponent(canal.canalId)}`,
           {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${apiToken}`,
+            },
             body: JSON.stringify(payload),
           },
         );
@@ -346,7 +366,7 @@ export default function AdminCanalDashboard() {
         setSendingDeviceSettings(false);
       }
     },
-    [canal],
+    [canal, apiToken],
   );
 
   const commitSendInterval = useCallback(async () => {
@@ -482,8 +502,15 @@ export default function AdminCanalDashboard() {
     setDeleting(true);
     setDeleteError(null);
     try {
+      if (!apiToken) {
+        throw new Error("Session token missing. Please sign in again.");
+      }
+
       const res = await fetch(`${BACKEND_URL}/api/canals/${canalId}`, {
         method: "DELETE",
+        headers: {
+          Authorization: `Bearer ${apiToken}`,
+        },
       });
       if (!res.ok) {
         const j = await res.json().catch(() => ({}));
@@ -571,9 +598,16 @@ export default function AdminCanalDashboard() {
     };
 
     try {
+      if (!apiToken) {
+        throw new Error("Session token missing. Please sign in again.");
+      }
+
       const res = await fetch(`${BACKEND_URL}/api/canals/${canalId}`, {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${apiToken}`,
+        },
         body: JSON.stringify(body),
       });
 
@@ -1795,7 +1829,7 @@ export default function AdminCanalDashboard() {
           <p className="text-sm text-muted-foreground">
             Deactivating this canal will hide it from the dashboard and stop
             accepting new data from the IIMS device. This action can be reversed
-            by reactivating it from the database.
+            by contacting a super admin.
           </p>
 
           {!showDeleteConfirm ? (

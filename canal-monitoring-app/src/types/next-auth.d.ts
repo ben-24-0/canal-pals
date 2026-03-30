@@ -4,7 +4,8 @@ import "next-auth/jwt";
 declare module "next-auth" {
   interface User {
     id: string;
-    role: "user" | "admin";
+    role: "user" | "admin" | "superadmin";
+    apiToken?: string;
   }
 
   interface Session {
@@ -13,7 +14,8 @@ declare module "next-auth" {
       name?: string | null;
       email?: string | null;
       image?: string | null;
-      role: "user" | "admin";
+      role: "user" | "admin" | "superadmin";
+      apiToken?: string;
     };
   }
 }
@@ -21,6 +23,7 @@ declare module "next-auth" {
 declare module "next-auth/jwt" {
   interface JWT {
     id: string;
-    role: "user" | "admin";
+    role: "user" | "admin" | "superadmin";
+    apiToken?: string;
   }
 }

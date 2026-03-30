@@ -21,9 +21,16 @@ const userSchema = new mongoose.Schema(
     },
     role: {
       type: String,
-      enum: ["user", "admin"],
+      enum: ["user", "admin", "superadmin"],
       default: "user",
     },
+    assignedCanals: [
+      {
+        type: String,
+        trim: true,
+        lowercase: true,
+      },
+    ],
     favouriteCanals: [
       {
         type: String,

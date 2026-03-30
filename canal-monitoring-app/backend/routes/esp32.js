@@ -4,6 +4,7 @@ const Canal = require("../models/Canal");
 const dataBuffer = require("../lib/dataBuffer");
 const { processRegisterMessage } = require("../lib/readingProcessor");
 const mqttIngest = require("../lib/mqttIngest");
+const { requireApiAuth, requireRoles } = require("../middleware/apiAuth");
 
 const router = express.Router();
 const DEFAULT_SEND_INTERVAL_MS = 30 * 60 * 1000;
@@ -65,7 +66,11 @@ router.get("/buffer-stats", (req, res) => {
 });
 
 // POST /api/esp32/flush - Manually trigger a flush to MongoDB
-router.post("/flush", async (req, res) => {
+router.post(
+  "/flush",
+  requireApiAuth,
+  requireRoles("superadmin"),
+  async (req, res) => {
   try {
     const result = await dataBuffer.flush();
     res.json({ success: true, ...result });
@@ -157,7 +162,11 @@ router.post(
 );
 
 // POST /api/esp32/settings/:canalId - publish runtime settings to ESP via MQTT
-router.post("/settings/:canalId", async (req, res) => {
+router.post(
+  "/settings/:canalId",
+  requireApiAuth,
+  requireRoles("admin", "superadmin"),
+  async (req, res) => {
   try {
     const canalId = String(req.params.canalId || "")
       .toLowerCase()

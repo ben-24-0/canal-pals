@@ -7,6 +7,7 @@ import {
   Home,
   Map,
   PlusSquare,
+  ShieldCheck,
   LogOut,
   User,
   ChevronLeft,
@@ -23,12 +24,25 @@ const adminItems = [
   { href: "/app/admin/add-module", icon: PlusSquare, label: "Add Module" },
 ];
 
+const superAdminItems = [
+  {
+    href: "/app/admin/super-admin",
+    icon: ShieldCheck,
+    label: "Super Admin",
+  },
+];
+
 export default function Sidebar() {
   const pathname = usePathname();
   const { data: session } = useSession();
   const [collapsed, setCollapsed] = useState(true);
-  const isAdmin = session?.user?.role === "admin";
-  const mobileItems = isAdmin ? [...navItems, ...adminItems] : navItems;
+  const role = session?.user?.role;
+  const isAdmin = role === "admin" || role === "superadmin";
+  const isSuperAdmin = role === "superadmin";
+  const adminNavItems = isSuperAdmin
+    ? [...adminItems, ...superAdminItems]
+    : adminItems;
+  const mobileItems = isAdmin ? [...navItems, ...adminNavItems] : navItems;
 
   useEffect(() => {
     const forceCollapsedOnSmallerScreens = () => {
@@ -117,7 +131,7 @@ export default function Sidebar() {
                 </p>
               )}
               {!collapsed && <div className="border-t border-border mb-1" />}
-              {adminItems.map(({ href, icon: Icon, label }) => (
+              {adminNavItems.map(({ href, icon: Icon, label }) => (
                 <Link
                   key={href}
                   href={href}
