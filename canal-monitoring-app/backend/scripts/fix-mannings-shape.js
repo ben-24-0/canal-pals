@@ -4,7 +4,7 @@
  *
  * Usage:  node scripts/fix-mannings-shape.js
  */
-require("dotenv").config();
+require("../lib/loadEnv");
 const mongoose = require("mongoose");
 
 const MONGO_URI =
