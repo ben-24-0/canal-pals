@@ -16,8 +16,7 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "Intelligent Irrigation Monitoring System",
-  description:
-    "Real-time canal monitoring with IIMS sensors and Manning's equation",
+  description: "Real-time canal monitoring with intelligent field sensing",
 };
 
 export default function RootLayout({

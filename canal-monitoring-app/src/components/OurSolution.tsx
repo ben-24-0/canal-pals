@@ -11,7 +11,7 @@ export default function OurSolution() {
           </p>
           <ul className="list-disc pl-6">
             <li>
-              <b>Level-Based Estimation:</b> Uses ultrasonic sensors and Manning’s Equation for cost-effective monitoring.
+              <b>Level-Based Estimation:</b> Uses ultrasonic sensors for cost-effective monitoring.
             </li>
             <li>
               <b>Velocity-Based Measurement:</b> Employs Doppler radar for high-precision discharge at critical points.

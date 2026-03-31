@@ -1834,78 +1834,80 @@ export default function AdminCanalDashboard() {
       </Card>
 
       {/* Danger Zone — Delete Canal */}
-      <Card className="border-destructive/40">
-        <CardHeader className="pb-2">
-          <CardTitle className="text-base flex items-center gap-1.5 text-destructive">
-            <AlertTriangle className="w-4 h-4" /> Danger Zone
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <p className="text-sm text-muted-foreground">
-            Deactivating this canal will hide it from the dashboard and stop
-            accepting new data from the IIMS device. This action can be reversed
-            by contacting a super admin.
-          </p>
+      {canEditCanal && (
+        <Card className="border-destructive/40">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base flex items-center gap-1.5 text-destructive">
+              <AlertTriangle className="w-4 h-4" /> Danger Zone
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              Deactivating this canal will hide it from the dashboard and stop
+              accepting new data from the IIMS device. This action can be reversed
+              by contacting a super admin.
+            </p>
 
-          {!showDeleteConfirm ? (
-            <Button
-              variant="destructive"
-              onClick={() => setShowDeleteConfirm(true)}
-            >
-              <Trash2 className="w-4 h-4 mr-1.5" />
-              Delete Canal
-            </Button>
-          ) : (
-            <div className="space-y-3 p-4 rounded-lg border border-destructive/30 bg-destructive/5">
-              <p className="text-sm font-medium">
-                Type{" "}
-                <code className="px-1.5 py-0.5 rounded bg-muted font-mono text-xs">
-                  {canal.canalId}
-                </code>{" "}
-                to confirm deletion:
-              </p>
-              <Input
-                value={deleteConfirmText}
-                onChange={(e) => setDeleteConfirmText(e.target.value)}
-                placeholder={canal.canalId}
-                className="max-w-sm font-mono text-sm"
-              />
-              {deleteError && (
-                <p className="text-sm text-destructive">{deleteError}</p>
-              )}
-              <div className="flex gap-2">
-                <Button
-                  variant="destructive"
-                  disabled={deleteConfirmText !== canal.canalId || deleting}
-                  onClick={handleDeleteCanal}
-                >
-                  {deleting ? (
-                    <>
-                      <Loader2 className="w-4 h-4 mr-1.5 animate-spin" />
-                      Deleting…
-                    </>
-                  ) : (
-                    <>
-                      <Trash2 className="w-4 h-4 mr-1.5" />
-                      Confirm Delete
-                    </>
-                  )}
-                </Button>
-                <Button
-                  variant="outline"
-                  onClick={() => {
-                    setShowDeleteConfirm(false);
-                    setDeleteConfirmText("");
-                    setDeleteError(null);
-                  }}
-                >
-                  Cancel
-                </Button>
+            {!showDeleteConfirm ? (
+              <Button
+                variant="destructive"
+                onClick={() => setShowDeleteConfirm(true)}
+              >
+                <Trash2 className="w-4 h-4 mr-1.5" />
+                Delete Canal
+              </Button>
+            ) : (
+              <div className="space-y-3 p-4 rounded-lg border border-destructive/30 bg-destructive/5">
+                <p className="text-sm font-medium">
+                  Type{" "}
+                  <code className="px-1.5 py-0.5 rounded bg-muted font-mono text-xs">
+                    {canal.canalId}
+                  </code>{" "}
+                  to confirm deletion:
+                </p>
+                <Input
+                  value={deleteConfirmText}
+                  onChange={(e) => setDeleteConfirmText(e.target.value)}
+                  placeholder={canal.canalId}
+                  className="max-w-sm font-mono text-sm"
+                />
+                {deleteError && (
+                  <p className="text-sm text-destructive">{deleteError}</p>
+                )}
+                <div className="flex gap-2">
+                  <Button
+                    variant="destructive"
+                    disabled={deleteConfirmText !== canal.canalId || deleting}
+                    onClick={handleDeleteCanal}
+                  >
+                    {deleting ? (
+                      <>
+                        <Loader2 className="w-4 h-4 mr-1.5 animate-spin" />
+                        Deleting…
+                      </>
+                    ) : (
+                      <>
+                        <Trash2 className="w-4 h-4 mr-1.5" />
+                        Confirm Delete
+                      </>
+                    )}
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      setShowDeleteConfirm(false);
+                      setDeleteConfirmText("");
+                      setDeleteError(null);
+                    }}
+                  >
+                    Cancel
+                  </Button>
+                </div>
               </div>
-            </div>
-          )}
-        </CardContent>
-      </Card>
+            )}
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }
