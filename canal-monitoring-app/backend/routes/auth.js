@@ -1,6 +1,7 @@
 const express = require("express");
 const bcrypt = require("bcryptjs");
 const User = require("../models/User");
+const AuthLog = require("../models/AuthLog");
 const { issueApiToken } = require("../middleware/apiAuth");
 
 const router = express.Router();
@@ -30,6 +31,8 @@ async function recoverBootstrapSuperAdminIfNeeded(normalizedEmail, password) {
       email: normalizedEmail,
       passwordHash,
       role: "superadmin",
+      isApproved: true,
+      approvedAt: new Date(),
       assignedCanals: [],
       favouriteCanals: [],
     });
@@ -39,6 +42,17 @@ async function recoverBootstrapSuperAdminIfNeeded(normalizedEmail, password) {
 
   if (existingUser.role !== "superadmin") {
     existingUser.role = "superadmin";
+    changed = true;
+  }
+
+  if (!existingUser.isApproved) {
+    existingUser.isApproved = true;
+    existingUser.approvedAt = new Date();
+    changed = true;
+  }
+
+  if (existingUser.managedByAdminId) {
+    existingUser.managedByAdminId = null;
     changed = true;
   }
 
@@ -82,6 +96,34 @@ async function recoverBootstrapSuperAdminIfNeeded(normalizedEmail, password) {
   }
 
   return existingUser;
+}
+
+function readRequestIp(req) {
+  const xff = String(req.headers["x-forwarded-for"] || "").trim();
+  if (xff) {
+    return xff.split(",")[0].trim();
+  }
+  return (
+    String(req.ip || "").trim() ||
+    String(req.socket?.remoteAddress || "").trim() ||
+    ""
+  );
+}
+
+async function writeLoginAudit(user, req) {
+  if (!user || !["user", "admin"].includes(String(user.role || ""))) {
+    return;
+  }
+
+  await AuthLog.create({
+    userId: user._id,
+    managedByAdminId: user.managedByAdminId || null,
+    email: user.email,
+    role: user.role,
+    loginAt: new Date(),
+    ipAddress: readRequestIp(req),
+    userAgent: String(req.headers["user-agent"] || "").slice(0, 500),
+  });
 }
 
 // POST /api/auth/register — create a new user account
@@ -131,19 +173,25 @@ router.post("/register", async (req, res) => {
       email: normalizedEmail,
       passwordHash,
       role: "user",
+      isApproved: false,
+      approvedAt: null,
+      approvedBy: null,
+      managedByAdminId: null,
+      extraGroupIds: [],
+      allowedDeviceIds: [],
+      hiddenDeviceIds: [],
       assignedCanals: [],
       favouriteCanals: [],
     });
-
-    const apiToken = issueApiToken(user);
 
     return res.status(201).json({
       id: user._id.toString(),
       email: user.email,
       name: user.name,
       role: user.role,
-      apiToken,
-      message: "Account created successfully",
+      isApproved: user.isApproved,
+      message:
+        "Account created. Your account will be activated by a super admin.",
     });
   } catch (error) {
     console.error("Register error:", error);
@@ -189,14 +237,25 @@ router.post("/login", async (req, res) => {
       return res.status(401).json({ error: "Invalid credentials" });
     }
 
+    if (user.role !== "superadmin" && !user.isApproved) {
+      return res.status(403).json({
+        error: "Account pending approval",
+        message:
+          "Your account is pending activation. Please contact your administrator.",
+      });
+    }
+
     // Return user profile (never return passwordHash)
     const apiToken = issueApiToken(user);
+
+    await writeLoginAudit(user, req);
 
     return res.json({
       id: user._id.toString(),
       email: user.email,
       name: user.name,
       role: user.role,
+      isApproved: Boolean(user.isApproved),
       apiToken,
     });
   } catch (error) {

@@ -67,8 +67,7 @@ const STATUS_CONFIG: Record<
 
 export default function MapPage() {
   const { data: session, status } = useSession();
-  const isAdmin =
-    session?.user?.role === "admin" || session?.user?.role === "superadmin";
+  const canUseSharedCanalView = Boolean(session?.user);
 
   const [canalList, setCanalList] = useState<CanalInfo[]>([]);
   const [selected, setSelected] = useState<CanalPin | null>(null);
@@ -315,7 +314,7 @@ export default function MapPage() {
 
               <Link
                 href={
-                  isAdmin
+                  canUseSharedCanalView
                     ? `/app/admin/canal/${selected.canal.canalId}`
                     : `/app/canal/${selected.canal.canalId}`
                 }

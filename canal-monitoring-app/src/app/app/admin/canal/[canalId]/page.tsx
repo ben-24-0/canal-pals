@@ -153,6 +153,10 @@ export default function AdminCanalDashboard() {
   const params = useParams();
   const router = useRouter();
   const { data: session } = useSession();
+  const viewerRole = session?.user?.role;
+  const isAdminViewer =
+    viewerRole === "admin" || viewerRole === "superadmin";
+  const canEditCanal = isAdminViewer;
   const apiToken = session?.user?.apiToken || "";
   const canalId = params.canalId as string;
 
@@ -813,8 +817,15 @@ export default function AdminCanalDashboard() {
           />
         </div>
         <div className="flex items-center gap-2">
-          <Badge variant="outline" className="text-amber-600 border-amber-400">
-            Admin View
+          <Badge
+            variant="outline"
+            className={
+              isAdminViewer
+                ? "text-amber-600 border-amber-400"
+                : "text-blue-600 border-blue-400"
+            }
+          >
+            {isAdminViewer ? "Admin View" : "User View"}
           </Badge>
         </div>
       </div>
@@ -851,16 +862,18 @@ export default function AdminCanalDashboard() {
               </div>
             </div>
 
-            <div>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleForceRead}
-                disabled={sendingDeviceSettings || forceReadBusy}
-              >
-                {forceReadBusy ? "Measuring..." : "Measure"}
-              </Button>
-            </div>
+            {canEditCanal && (
+              <div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleForceRead}
+                  disabled={sendingDeviceSettings || forceReadBusy}
+                >
+                  {forceReadBusy ? "Measuring..." : "Measure"}
+                </Button>
+              </div>
+            )}
 
             {/* Secondary metrics: Velocity & Flow Rate */}
             <div className="grid grid-cols-2 gap-3">
@@ -1214,13 +1227,14 @@ export default function AdminCanalDashboard() {
       </Card>
 
       {/* Settings */}
-      <Card>
-        <CardHeader className="pb-2">
-          <CardTitle className="text-base flex items-center gap-1.5">
-            <Settings2 className="w-4 h-4" /> Canal Settings
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-5">
+      {canEditCanal && (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base flex items-center gap-1.5">
+              <Settings2 className="w-4 h-4" /> Canal Settings
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-5">
           <div className="flex items-center justify-between rounded-lg border bg-muted/30 p-3">
             <p className="text-sm text-muted-foreground">
               {isEditMode
@@ -1598,13 +1612,14 @@ export default function AdminCanalDashboard() {
               Settings saved successfully.
             </div>
           )}
-          {deviceSettingsMsg && (
-            <div className="p-3 rounded-lg bg-muted/60 text-sm text-muted-foreground">
-              {deviceSettingsMsg}
-            </div>
-          )}
-        </CardContent>
-      </Card>
+            {deviceSettingsMsg && (
+              <div className="p-3 rounded-lg bg-muted/60 text-sm text-muted-foreground">
+                {deviceSettingsMsg}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {/* Charts */}
       <Card>

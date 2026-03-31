@@ -55,7 +55,10 @@ router.get("/", async (req, res) => {
     }
 
     const viewer = await getViewerContext(viewerUserId);
-    if (viewer.role === "admin") {
+    if (
+      (viewer.role === "admin" || viewer.role === "user") &&
+      Array.isArray(viewer.accessibleCanalIds)
+    ) {
       query.canalId = { $in: viewer.accessibleCanalIds };
     }
 
@@ -111,12 +114,12 @@ router.get("/:canalId", async (req, res) => {
 
     const viewer = await getViewerContext(viewerUserId);
     if (
-      viewer.role === "admin" &&
+      (viewer.role === "admin" || viewer.role === "user") &&
       !viewer.accessibleCanalIds.includes(normalizedCanalId)
     ) {
       return res.status(403).json({
         error: "Forbidden",
-        message: "This admin account does not have access to the requested canal",
+        message: "This account does not have access to the requested canal",
       });
     }
 
@@ -467,12 +470,12 @@ router.get("/:canalId/readings", async (req, res) => {
 
     const viewer = await getViewerContext(viewerUserId);
     if (
-      viewer.role === "admin" &&
+      (viewer.role === "admin" || viewer.role === "user") &&
       !viewer.accessibleCanalIds.includes(normalizedCanalId)
     ) {
       return res.status(403).json({
         error: "Forbidden",
-        message: "This admin account does not have access to the requested canal",
+        message: "This account does not have access to the requested canal",
       });
     }
 

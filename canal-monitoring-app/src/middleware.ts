@@ -8,6 +8,7 @@ export default auth((req) => {
 
   const isAppRoute = nextUrl.pathname.startsWith("/app");
   const isAdminRoute = nextUrl.pathname.startsWith("/app/admin");
+  const isSharedCanalRoute = nextUrl.pathname.startsWith("/app/admin/canal/");
   const isSuperAdminRoute = nextUrl.pathname.startsWith(
     "/app/admin/super-admin",
   );
@@ -26,6 +27,14 @@ export default auth((req) => {
   // Super-admin route requires superadmin role.
   if (isSuperAdminRoute && userRole !== "superadmin") {
     return NextResponse.redirect(new URL("/app", nextUrl));
+  }
+
+  // Allow standard users to use the shared read-only canal dashboard route.
+  if (
+    isSharedCanalRoute &&
+    ["user", "admin", "superadmin"].includes(String(userRole || ""))
+  ) {
+    return NextResponse.next();
   }
 
   // Non-admin/non-superadmin users cannot access admin-only routes.

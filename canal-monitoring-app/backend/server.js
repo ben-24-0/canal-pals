@@ -85,6 +85,7 @@ const esp32Routes = require("./routes/esp32");
 const canalRoutes = require("./routes/canals");
 const dashboardRoutes = require("./routes/dashboard");
 const authRoutes = require("./routes/auth");
+const adminRoutes = require("./routes/admin");
 const superAdminRoutes = require("./routes/superAdmin");
 const streamRoutes = require("./routes/stream");
 const dataBuffer = require("./lib/dataBuffer");
@@ -95,6 +96,7 @@ app.use("/api/esp32", esp32Routes);
 app.use("/api/canals", canalRoutes);
 app.use("/api/dashboard", dashboardRoutes);
 app.use("/api/auth", authRoutes);
+app.use("/api/admin", adminRoutes);
 app.use("/api/super-admin", superAdminRoutes);
 app.use("/api/stream", streamRoutes);
 

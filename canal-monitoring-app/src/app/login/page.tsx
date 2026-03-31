@@ -2,17 +2,19 @@
 
 import { useState } from "react";
 import { signIn } from "next-auth/react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 
 const SHOW_TRANSITION_NOTICE = true;
 
 export default function LoginPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const showPendingNotice = searchParams.get("registered") === "pending";
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -62,6 +64,13 @@ export default function LoginPage() {
           <div className="mb-4 rounded-lg border border-amber-300/60 bg-amber-100/50 px-4 py-3 text-xs text-amber-900 dark:border-amber-800/60 dark:bg-amber-950/20 dark:text-amber-200">
             Temporary notice: legacy demo accounts have been disabled. Please
             create your own account if you do not have one yet.
+          </div>
+        )}
+
+        {showPendingNotice && (
+          <div className="mb-4 rounded-lg border border-blue-300/60 bg-blue-100/60 px-4 py-3 text-xs text-blue-900 dark:border-blue-800/60 dark:bg-blue-950/20 dark:text-blue-200">
+            Account created successfully. A super admin must activate your
+            account before first sign in.
           </div>
         )}
 

@@ -31,9 +31,22 @@ interface ManagedUser {
   name: string;
   email: string;
   role: Role;
+  isApproved: boolean;
+  approvedAt?: string | null;
+  managedByAdminId: string | null;
+  managedByAdmin?: {
+    id: string;
+    name: string;
+    email: string;
+  } | null;
   directAssignedCanals: string[];
+  inheritedGroupIds: string[];
+  extraGroupIds: string[];
+  effectiveGroupIds: string[];
   effectiveCanalIds: string[];
   groupNames: string[];
+  allowedDeviceIds: string[];
+  hiddenDeviceIds: string[];
 }
 
 interface CanalGroupItem {
@@ -60,6 +73,23 @@ interface CanalOption {
   name: string;
 }
 
+interface LoginLogItem {
+  id: string;
+  userId: string;
+  role: "user" | "admin";
+  email: string;
+  loginAt: string;
+  ipAddress: string;
+  userAgent: string;
+  userName: string;
+  managedByAdminId: string | null;
+  managedByAdmin?: {
+    id: string;
+    name: string;
+    email: string;
+  } | null;
+}
+
 function uniqueSorted(values: Iterable<string>): string[] {
   return [...new Set([...values].filter(Boolean))].sort((a, b) =>
     a.localeCompare(b),
@@ -81,6 +111,19 @@ export default function SuperAdminPage() {
   const [groups, setGroups] = useState<CanalGroupItem[]>([]);
   const [devices, setDevices] = useState<DeviceItem[]>([]);
   const [canals, setCanals] = useState<CanalOption[]>([]);
+  const [loginLogs, setLoginLogs] = useState<LoginLogItem[]>([]);
+
+  const [selectedUserId, setSelectedUserId] = useState<string>("");
+  const [userManagedByAdminId, setUserManagedByAdminId] = useState("");
+  const [userExtraGroupIds, setUserExtraGroupIds] = useState<Set<string>>(
+    new Set(),
+  );
+  const [userAllowedDeviceIds, setUserAllowedDeviceIds] = useState<Set<string>>(
+    new Set(),
+  );
+  const [userHiddenDeviceIds, setUserHiddenDeviceIds] = useState<Set<string>>(
+    new Set(),
+  );
 
   const [selectedAdminId, setSelectedAdminId] = useState<string>("");
   const [adminSelectedCanals, setAdminSelectedCanals] = useState<Set<string>>(
@@ -108,6 +151,11 @@ export default function SuperAdminPage() {
   const selectedAdmin = useMemo(
     () => admins.find((admin) => admin.id === selectedAdminId) || null,
     [admins, selectedAdminId],
+  );
+
+  const selectedUser = useMemo(
+    () => users.find((user) => user.id === selectedUserId) || null,
+    [users, selectedUserId],
   );
 
   const authFetch = useCallback(
@@ -146,19 +194,26 @@ export default function SuperAdminPage() {
     setError(null);
 
     try {
-      const [usersPayload, groupsPayload, devicesPayload, canalsPayload] =
-        await Promise.all([
-          authFetch("/api/super-admin/users"),
-          authFetch("/api/super-admin/groups"),
-          authFetch("/api/super-admin/devices"),
-          fetch(`${BACKEND_URL}/api/canals?active=true&limit=500`).then((res) =>
-            res.json(),
-          ),
-        ]);
+      const [
+        usersPayload,
+        groupsPayload,
+        devicesPayload,
+        canalsPayload,
+        logsPayload,
+      ] = await Promise.all([
+        authFetch("/api/super-admin/users"),
+        authFetch("/api/super-admin/groups"),
+        authFetch("/api/super-admin/devices"),
+        fetch(`${BACKEND_URL}/api/canals?active=true&limit=500`).then((res) =>
+          res.json(),
+        ),
+        authFetch("/api/super-admin/login-logs?limit=100&page=1"),
+      ]);
 
       const nextUsers = (usersPayload.users || []) as ManagedUser[];
       const nextGroups = (groupsPayload.groups || []) as CanalGroupItem[];
       const nextDevices = (devicesPayload.devices || []) as DeviceItem[];
+      const nextLogs = (logsPayload.logs || []) as LoginLogItem[];
       const nextCanals = ((canalsPayload.canals || []) as CanalOption[])
         .map((canal) => ({ canalId: canal.canalId, name: canal.name }))
         .sort((a, b) => a.name.localeCompare(b.name));
@@ -167,6 +222,7 @@ export default function SuperAdminPage() {
       setGroups(nextGroups);
       setDevices(nextDevices);
       setCanals(nextCanals);
+      setLoginLogs(nextLogs);
 
       const draftMap: Record<string, string> = {};
       for (const device of nextDevices) {
@@ -175,11 +231,18 @@ export default function SuperAdminPage() {
       setDeviceAssignDrafts(draftMap);
 
       const firstAdmin = nextUsers.find((u) => u.role === "admin");
+      const firstUser = nextUsers.find((u) => u.role === "user");
       setSelectedAdminId((prev) => {
         if (prev && nextUsers.some((u) => u.id === prev && u.role === "admin")) {
           return prev;
         }
         return firstAdmin?.id || "";
+      });
+      setSelectedUserId((prev) => {
+        if (prev && nextUsers.some((u) => u.id === prev && u.role === "user")) {
+          return prev;
+        }
+        return firstUser?.id || "";
       });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load data");
@@ -206,6 +269,21 @@ export default function SuperAdminPage() {
     setAdminSelectedCanals(new Set(selectedAdmin.directAssignedCanals || []));
   }, [selectedAdmin]);
 
+  useEffect(() => {
+    if (!selectedUser) {
+      setUserManagedByAdminId("");
+      setUserExtraGroupIds(new Set());
+      setUserAllowedDeviceIds(new Set());
+      setUserHiddenDeviceIds(new Set());
+      return;
+    }
+
+    setUserManagedByAdminId(selectedUser.managedByAdminId || "");
+    setUserExtraGroupIds(new Set(selectedUser.extraGroupIds || []));
+    setUserAllowedDeviceIds(new Set(selectedUser.allowedDeviceIds || []));
+    setUserHiddenDeviceIds(new Set(selectedUser.hiddenDeviceIds || []));
+  }, [selectedUser]);
+
   const withBusy = async (work: () => Promise<void>) => {
     setBusy(true);
     setError(null);
@@ -219,15 +297,22 @@ export default function SuperAdminPage() {
     }
   };
 
-  const updateRole = async (user: ManagedUser, nextRole: Role) => {
-    if (user.role === nextRole) return;
-
+  const updateRole = async (
+    user: ManagedUser,
+    nextRole: Role,
+    managedByAdminId?: string | null,
+  ) => {
     await withBusy(async () => {
       await authFetch(`/api/super-admin/users/${user.id}/role`, {
         method: "PATCH",
-        body: JSON.stringify({ role: nextRole }),
+        body: JSON.stringify({
+          role: nextRole,
+          ...(managedByAdminId !== undefined
+            ? { managedByAdminId: managedByAdminId || null }
+            : {}),
+        }),
       });
-      setMessage(`Updated ${user.email} to ${nextRole}.`);
+      setMessage(`Updated ${user.email}.`);
       await loadData();
     });
   };
@@ -267,6 +352,72 @@ export default function SuperAdminPage() {
       setMessage("Direct canal assignments updated.");
       await loadData();
     });
+  };
+
+  const toggleUserExtraGroup = (groupId: string) => {
+    setUserExtraGroupIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(groupId)) next.delete(groupId);
+      else next.add(groupId);
+      return next;
+    });
+  };
+
+  const toggleAllowedDevice = (deviceId: string) => {
+    setUserAllowedDeviceIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(deviceId)) next.delete(deviceId);
+      else next.add(deviceId);
+      return next;
+    });
+
+    setUserHiddenDeviceIds((prev) => {
+      const next = new Set(prev);
+      next.delete(deviceId);
+      return next;
+    });
+  };
+
+  const toggleHiddenDevice = (deviceId: string) => {
+    setUserHiddenDeviceIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(deviceId)) next.delete(deviceId);
+      else next.add(deviceId);
+      return next;
+    });
+
+    setUserAllowedDeviceIds((prev) => {
+      const next = new Set(prev);
+      next.delete(deviceId);
+      return next;
+    });
+  };
+
+  const saveUserAccess = async () => {
+    if (!selectedUser) return;
+
+    await withBusy(async () => {
+      await authFetch(`/api/super-admin/users/${selectedUser.id}/access`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          managedByAdminId: userManagedByAdminId || null,
+          extraGroupIds: uniqueSorted(userExtraGroupIds),
+          allowedDeviceIds: uniqueSorted(userAllowedDeviceIds),
+          hiddenDeviceIds: uniqueSorted(userHiddenDeviceIds),
+        }),
+      });
+
+      setMessage(`Updated access for ${selectedUser.email}.`);
+      await loadData();
+    });
+  };
+
+  const approvePendingUser = async (user: ManagedUser) => {
+    await updateRole(
+      user,
+      user.role,
+      user.managedByAdminId || userManagedByAdminId || null,
+    );
   };
 
   const resetGroupForm = () => {
@@ -536,6 +687,7 @@ export default function SuperAdminPage() {
                   <tr>
                     <th className="text-left px-3 py-2">Name</th>
                     <th className="text-left px-3 py-2">Email</th>
+                    <th className="text-left px-3 py-2">Status</th>
                     <th className="text-left px-3 py-2">Role</th>
                     <th className="text-left px-3 py-2">Groups</th>
                     <th className="text-left px-3 py-2">Canals</th>
@@ -547,6 +699,11 @@ export default function SuperAdminPage() {
                     <tr key={user.id} className="border-t">
                       <td className="px-3 py-2">{user.name}</td>
                       <td className="px-3 py-2 font-mono text-xs">{user.email}</td>
+                      <td className="px-3 py-2">
+                        <Badge variant={user.isApproved ? "default" : "outline"}>
+                          {user.isApproved ? "Active" : "Pending"}
+                        </Badge>
+                      </td>
                       <td className="px-3 py-2">
                         <select
                           className="h-8 rounded-md border bg-background px-2"
@@ -575,10 +732,19 @@ export default function SuperAdminPage() {
                       </td>
                       <td className="px-3 py-2 text-right">
                         <Button
+                          variant="outline"
+                          size="sm"
+                          disabled={busy || user.isApproved}
+                          onClick={() => approvePendingUser(user)}
+                        >
+                          Activate
+                        </Button>
+                        <Button
                           variant="destructive"
                           size="sm"
                           disabled={busy || user.id === currentUserId}
                           onClick={() => deleteUser(user)}
+                          className="ml-2"
                         >
                           <Trash2 className="w-3.5 h-3.5 mr-1" />
                           Delete
@@ -589,6 +755,127 @@ export default function SuperAdminPage() {
                 </tbody>
               </table>
             </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">User Access Overrides</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {users.filter((user) => user.role === "user").length === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              No user-role accounts available.
+            </p>
+          ) : (
+            <>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <Label>Select User</Label>
+                  <select
+                    className="h-10 w-full rounded-md border bg-background px-3"
+                    value={selectedUserId}
+                    onChange={(e) => setSelectedUserId(e.target.value)}
+                    disabled={busy}
+                  >
+                    {users
+                      .filter((user) => user.role === "user")
+                      .map((user) => (
+                        <option key={user.id} value={user.id}>
+                          {user.name} ({user.email})
+                        </option>
+                      ))}
+                  </select>
+                </div>
+
+                <div className="space-y-1">
+                  <Label>Managing Admin</Label>
+                  <select
+                    className="h-10 w-full rounded-md border bg-background px-3"
+                    value={userManagedByAdminId}
+                    onChange={(e) => setUserManagedByAdminId(e.target.value)}
+                    disabled={busy}
+                  >
+                    <option value="">No manager</option>
+                    {admins.map((admin) => (
+                      <option key={admin.id} value={admin.id}>
+                        {admin.name} ({admin.email})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <p className="text-xs text-muted-foreground">
+                    Extra groups ({userExtraGroupIds.size} selected)
+                  </p>
+                  <div className="max-h-52 overflow-auto rounded-md border p-2 space-y-1">
+                    {groups.map((group) => (
+                      <label
+                        key={group.id}
+                        className="flex items-center gap-2 text-xs"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={userExtraGroupIds.has(group.id)}
+                          onChange={() => toggleUserExtraGroup(group.id)}
+                          disabled={busy}
+                        />
+                        <span className="truncate">{group.name}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <p className="text-xs text-muted-foreground">
+                    Device visibility (+allow / -hide)
+                  </p>
+                  <div className="max-h-52 overflow-auto rounded-md border p-2 space-y-2">
+                    {devices.map((device) => (
+                      <div
+                        key={device.deviceId}
+                        className="rounded-md border px-2 py-1.5"
+                      >
+                        <p className="text-xs font-medium">{device.deviceId}</p>
+                        <div className="mt-1 flex items-center gap-3 text-xs">
+                          <label className="flex items-center gap-1.5">
+                            <input
+                              type="checkbox"
+                              checked={userAllowedDeviceIds.has(device.deviceId)}
+                              onChange={() => toggleAllowedDevice(device.deviceId)}
+                              disabled={busy}
+                            />
+                            Allow
+                          </label>
+                          <label className="flex items-center gap-1.5">
+                            <input
+                              type="checkbox"
+                              checked={userHiddenDeviceIds.has(device.deviceId)}
+                              onChange={() => toggleHiddenDevice(device.deviceId)}
+                              disabled={busy}
+                            />
+                            Hide
+                          </label>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              <div className="text-xs text-muted-foreground">
+                Effective groups: {selectedUser?.effectiveGroupIds.length || 0} | Effective canals: {selectedUser?.effectiveCanalIds.length || 0}
+              </div>
+
+              <Button onClick={saveUserAccess} disabled={busy || !selectedUser}>
+                {busy ? <Loader2 className="w-4 h-4 mr-1.5 animate-spin" /> : null}
+                Save User Access
+              </Button>
+            </>
           )}
         </CardContent>
       </Card>
@@ -832,6 +1119,59 @@ export default function SuperAdminPage() {
               </tbody>
             </table>
           </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Login Audit (Admin & User)</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {loginLogs.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No login logs found.</p>
+          ) : (
+            <div className="rounded-md border overflow-x-auto">
+              <table className="w-full min-w-220 text-sm">
+                <thead className="bg-muted/40 text-muted-foreground">
+                  <tr>
+                    <th className="text-left px-3 py-2">Time</th>
+                    <th className="text-left px-3 py-2">Role</th>
+                    <th className="text-left px-3 py-2">User</th>
+                    <th className="text-left px-3 py-2">Manager</th>
+                    <th className="text-left px-3 py-2">IP</th>
+                    <th className="text-left px-3 py-2">Client</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {loginLogs.map((log) => (
+                    <tr key={log.id} className="border-t align-top">
+                      <td className="px-3 py-2 whitespace-nowrap">
+                        {new Date(log.loginAt).toLocaleString()}
+                      </td>
+                      <td className="px-3 py-2">
+                        <Badge variant="outline">{log.role}</Badge>
+                      </td>
+                      <td className="px-3 py-2">
+                        <p>{log.userName}</p>
+                        <p className="font-mono text-xs text-muted-foreground">
+                          {log.email}
+                        </p>
+                      </td>
+                      <td className="px-3 py-2 text-xs text-muted-foreground">
+                        {log.managedByAdmin?.name || "-"}
+                      </td>
+                      <td className="px-3 py-2 font-mono text-xs">
+                        {log.ipAddress || "-"}
+                      </td>
+                      <td className="px-3 py-2 text-xs text-muted-foreground max-w-120 break-all">
+                        {log.userAgent || "-"}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </CardContent>
       </Card>
 

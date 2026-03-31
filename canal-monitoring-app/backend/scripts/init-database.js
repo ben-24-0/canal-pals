@@ -106,6 +106,8 @@ async function initializeDatabase() {
         passwordHash: await bcrypt.hash(bootstrapSuperAdminPassword, salt),
         name: "Temporary Super Admin",
         role: "superadmin",
+        isApproved: true,
+        approvedAt: new Date(),
         assignedCanals: [],
         favouriteCanals: [],
       },

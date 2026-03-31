@@ -10,6 +10,7 @@ import {
   ShieldCheck,
   LogOut,
   User,
+  Users,
   ChevronLeft,
   ChevronRight,
 } from "lucide-react";
@@ -22,6 +23,7 @@ const navItems = [
 
 const adminItems = [
   { href: "/app/admin/add-module", icon: PlusSquare, label: "Add Module" },
+  { href: "/app/admin/users", icon: Users, label: "Manage Users" },
 ];
 
 const superAdminItems = [
