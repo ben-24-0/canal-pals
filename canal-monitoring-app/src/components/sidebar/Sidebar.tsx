@@ -209,14 +209,13 @@ export default function Sidebar() {
               href={href}
               title={label}
               aria-label={label}
-              className={`flex flex-col items-center justify-center gap-1 py-2 text-[11px] font-medium ${
+              className={`flex items-center justify-center py-3 ${
                 isActive(href)
                   ? "text-primary bg-primary/10"
                   : "text-muted-foreground"
               }`}
             >
               <Icon size={16} className="shrink-0" />
-              <span className="truncate">{label}</span>
             </Link>
           ))}
 
@@ -224,10 +223,9 @@ export default function Sidebar() {
             onClick={handleSignOut}
             title="Sign out"
             aria-label="Sign out"
-            className="flex flex-col items-center justify-center gap-1 py-2 text-[11px] font-medium text-muted-foreground"
+            className="flex items-center justify-center py-3 text-muted-foreground"
           >
             <LogOut size={16} className="shrink-0" />
-            <span>Sign out</span>
           </button>
         </div>
       </nav>
