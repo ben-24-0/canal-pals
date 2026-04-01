@@ -90,6 +90,14 @@ interface LoginLogItem {
   } | null;
 }
 
+type SectionId =
+  | "role-management"
+  | "access-overrides"
+  | "direct-canal-assignment"
+  | "group-management"
+  | "login-audit"
+  | "device-registry";
+
 function uniqueSorted(values: Iterable<string>): string[] {
   return [...new Set([...values].filter(Boolean))].sort((a, b) =>
     a.localeCompare(b),
@@ -102,10 +110,23 @@ export default function SuperAdminPage() {
   const apiToken = session?.user?.apiToken || "";
   const isSuperAdmin = session?.user?.role === "superadmin";
 
-  const [loading, setLoading] = useState(true);
+  const [activeSection, setActiveSection] = useState<SectionId | null>(null);
+
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+
+  const [usersLoading, setUsersLoading] = useState(false);
+  const [groupsLoading, setGroupsLoading] = useState(false);
+  const [devicesLoading, setDevicesLoading] = useState(false);
+  const [canalsLoading, setCanalsLoading] = useState(false);
+  const [logsLoading, setLogsLoading] = useState(false);
+
+  const [hasLoadedUsers, setHasLoadedUsers] = useState(false);
+  const [hasLoadedGroups, setHasLoadedGroups] = useState(false);
+  const [hasLoadedDevices, setHasLoadedDevices] = useState(false);
+  const [hasLoadedCanals, setHasLoadedCanals] = useState(false);
+  const [hasLoadedLogs, setHasLoadedLogs] = useState(false);
 
   const [users, setUsers] = useState<ManagedUser[]>([]);
   const [groups, setGroups] = useState<CanalGroupItem[]>([]);
@@ -161,49 +182,61 @@ export default function SuperAdminPage() {
   const quickSections = useMemo(
     () => [
       {
-        id: "role-management",
+        id: "role-management" as SectionId,
         label: "User Role Management",
         description: "Activate accounts, promote users, or revoke access.",
-        stat: `${users.length} total users`,
+        stat: hasLoadedUsers ? `${users.length} total users` : "Tap to load",
         icon: Users,
       },
       {
-        id: "access-overrides",
+        id: "access-overrides" as SectionId,
         label: "User Access Overrides",
         description: "Fine-tune manager, group, and device visibility.",
-        stat: `${users.filter((user) => user.role === "user").length} user accounts`,
+        stat: hasLoadedUsers
+          ? `${users.filter((user) => user.role === "user").length} user accounts`
+          : "Tap to load",
         icon: ShieldCheck,
       },
       {
-        id: "direct-canal-assignment",
+        id: "direct-canal-assignment" as SectionId,
         label: "Direct Canal Assignment",
         description: "Assign canal visibility directly to admins.",
-        stat: `${admins.length} admins`,
+        stat: hasLoadedUsers ? `${admins.length} admins` : "Tap to load",
         icon: Link2,
       },
       {
-        id: "group-management",
+        id: "group-management" as SectionId,
         label: "Canal Group Management",
         description: "Create groups and map canals plus admin members.",
-        stat: `${groups.length} groups`,
+        stat: hasLoadedGroups ? `${groups.length} groups` : "Tap to load",
         icon: Users,
       },
       {
-        id: "login-audit",
+        id: "login-audit" as SectionId,
         label: "Login Audit",
         description: "Review sign-ins for admins and users.",
-        stat: `${loginLogs.length} recent logs`,
+        stat: hasLoadedLogs ? `${loginLogs.length} recent logs` : "Tap to load",
         icon: RefreshCw,
       },
       {
-        id: "device-registry",
+        id: "device-registry" as SectionId,
         label: "Device Registry",
         description: "Register, assign, decommission, or remove devices.",
-        stat: `${devices.length} devices`,
+        stat: hasLoadedDevices ? `${devices.length} devices` : "Tap to load",
         icon: Cpu,
       },
     ],
-    [users, admins.length, groups.length, loginLogs.length, devices.length],
+    [
+      users,
+      admins.length,
+      groups.length,
+      loginLogs.length,
+      devices.length,
+      hasLoadedUsers,
+      hasLoadedGroups,
+      hasLoadedLogs,
+      hasLoadedDevices,
+    ],
   );
 
   const authFetch = useCallback(
@@ -237,76 +270,158 @@ export default function SuperAdminPage() {
     [apiToken],
   );
 
-  const loadData = useCallback(async () => {
-    setLoading(true);
-    setError(null);
+  const loadUsers = useCallback(
+    async (force = false) => {
+      if (!force && hasLoadedUsers) return;
+      setUsersLoading(true);
 
-    try {
-      const [
-        usersPayload,
-        groupsPayload,
-        devicesPayload,
-        canalsPayload,
-        logsPayload,
-      ] = await Promise.all([
-        authFetch("/api/super-admin/users"),
-        authFetch("/api/super-admin/groups"),
-        authFetch("/api/super-admin/devices"),
-        fetch(`${BACKEND_URL}/api/canals?active=true&limit=500`).then((res) =>
-          res.json(),
-        ),
-        authFetch("/api/super-admin/login-logs?limit=100&page=1"),
-      ]);
+      try {
+        const usersPayload = await authFetch("/api/super-admin/users");
+        const nextUsers = (usersPayload.users || []) as ManagedUser[];
+        setUsers(nextUsers);
+        setHasLoadedUsers(true);
 
-      const nextUsers = (usersPayload.users || []) as ManagedUser[];
-      const nextGroups = (groupsPayload.groups || []) as CanalGroupItem[];
-      const nextDevices = (devicesPayload.devices || []) as DeviceItem[];
-      const nextLogs = (logsPayload.logs || []) as LoginLogItem[];
-      const nextCanals = ((canalsPayload.canals || []) as CanalOption[])
-        .map((canal) => ({ canalId: canal.canalId, name: canal.name }))
-        .sort((a, b) => a.name.localeCompare(b.name));
-
-      setUsers(nextUsers);
-      setGroups(nextGroups);
-      setDevices(nextDevices);
-      setCanals(nextCanals);
-      setLoginLogs(nextLogs);
-
-      const draftMap: Record<string, string> = {};
-      for (const device of nextDevices) {
-        draftMap[device.deviceId] = device.canalId || "";
+        const firstAdmin = nextUsers.find((u) => u.role === "admin");
+        const firstUser = nextUsers.find((u) => u.role === "user");
+        setSelectedAdminId((prev) => {
+          if (prev && nextUsers.some((u) => u.id === prev && u.role === "admin")) {
+            return prev;
+          }
+          return firstAdmin?.id || "";
+        });
+        setSelectedUserId((prev) => {
+          if (prev && nextUsers.some((u) => u.id === prev && u.role === "user")) {
+            return prev;
+          }
+          return firstUser?.id || "";
+        });
+      } finally {
+        setUsersLoading(false);
       }
-      setDeviceAssignDrafts(draftMap);
+    },
+    [authFetch, hasLoadedUsers],
+  );
 
-      const firstAdmin = nextUsers.find((u) => u.role === "admin");
-      const firstUser = nextUsers.find((u) => u.role === "user");
-      setSelectedAdminId((prev) => {
-        if (prev && nextUsers.some((u) => u.id === prev && u.role === "admin")) {
-          return prev;
+  const loadGroups = useCallback(
+    async (force = false) => {
+      if (!force && hasLoadedGroups) return;
+      setGroupsLoading(true);
+
+      try {
+        const groupsPayload = await authFetch("/api/super-admin/groups");
+        setGroups((groupsPayload.groups || []) as CanalGroupItem[]);
+        setHasLoadedGroups(true);
+      } finally {
+        setGroupsLoading(false);
+      }
+    },
+    [authFetch, hasLoadedGroups],
+  );
+
+  const loadDevices = useCallback(
+    async (force = false) => {
+      if (!force && hasLoadedDevices) return;
+      setDevicesLoading(true);
+
+      try {
+        const devicesPayload = await authFetch("/api/super-admin/devices");
+        const nextDevices = (devicesPayload.devices || []) as DeviceItem[];
+        setDevices(nextDevices);
+        setHasLoadedDevices(true);
+
+        const draftMap: Record<string, string> = {};
+        for (const device of nextDevices) {
+          draftMap[device.deviceId] = device.canalId || "";
         }
-        return firstAdmin?.id || "";
-      });
-      setSelectedUserId((prev) => {
-        if (prev && nextUsers.some((u) => u.id === prev && u.role === "user")) {
-          return prev;
+        setDeviceAssignDrafts(draftMap);
+      } finally {
+        setDevicesLoading(false);
+      }
+    },
+    [authFetch, hasLoadedDevices],
+  );
+
+  const loadCanals = useCallback(
+    async (force = false) => {
+      if (!force && hasLoadedCanals) return;
+      setCanalsLoading(true);
+
+      try {
+        const res = await fetch(`${BACKEND_URL}/api/canals?active=true&limit=500`);
+        const canalsPayload = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          throw new Error(
+            canalsPayload?.message ||
+              canalsPayload?.error ||
+              `Request failed (${res.status})`,
+          );
         }
-        return firstUser?.id || "";
-      });
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load data");
-    } finally {
-      setLoading(false);
-    }
-  }, [authFetch]);
+
+        const nextCanals = ((canalsPayload.canals || []) as CanalOption[])
+          .map((canal) => ({ canalId: canal.canalId, name: canal.name }))
+          .sort((a, b) => a.name.localeCompare(b.name));
+        setCanals(nextCanals);
+        setHasLoadedCanals(true);
+      } finally {
+        setCanalsLoading(false);
+      }
+    },
+    [hasLoadedCanals],
+  );
+
+  const loadLoginLogs = useCallback(
+    async (force = false) => {
+      if (!force && hasLoadedLogs) return;
+      setLogsLoading(true);
+
+      try {
+        const logsPayload = await authFetch(
+          "/api/super-admin/login-logs?limit=100&page=1",
+        );
+        setLoginLogs((logsPayload.logs || []) as LoginLogItem[]);
+        setHasLoadedLogs(true);
+      } finally {
+        setLogsLoading(false);
+      }
+    },
+    [authFetch, hasLoadedLogs],
+  );
+
+  const ensureSectionData = useCallback(
+    async (section: SectionId, force = false) => {
+      switch (section) {
+        case "role-management":
+          await loadUsers(force);
+          return;
+        case "access-overrides":
+          await Promise.all([loadUsers(force), loadGroups(force), loadDevices(force)]);
+          return;
+        case "direct-canal-assignment":
+          await Promise.all([loadUsers(force), loadCanals(force)]);
+          return;
+        case "group-management":
+          await Promise.all([loadGroups(force), loadUsers(force), loadCanals(force)]);
+          return;
+        case "login-audit":
+          await loadLoginLogs(force);
+          return;
+        case "device-registry":
+          await Promise.all([loadDevices(force), loadCanals(force)]);
+          return;
+      }
+    },
+    [loadCanals, loadDevices, loadGroups, loadLoginLogs, loadUsers],
+  );
 
   useEffect(() => {
-    if (!isSuperAdmin || !apiToken) {
-      setLoading(false);
+    if (!isSuperAdmin || !apiToken || !activeSection) {
       return;
     }
 
-    loadData();
-  }, [isSuperAdmin, apiToken, loadData]);
+    ensureSectionData(activeSection).catch((err) => {
+      setError(err instanceof Error ? err.message : "Failed to load section data");
+    });
+  }, [isSuperAdmin, apiToken, activeSection, ensureSectionData]);
 
   useEffect(() => {
     if (!selectedAdmin) {
@@ -345,6 +460,21 @@ export default function SuperAdminPage() {
     }
   };
 
+  const handleQuickSectionToggle = (sectionId: SectionId) => {
+    setError(null);
+    setMessage(null);
+    setActiveSection((prev) => (prev === sectionId ? null : sectionId));
+  };
+
+  const refreshActiveSection = async () => {
+    if (!activeSection) return;
+
+    await withBusy(async () => {
+      await ensureSectionData(activeSection, true);
+      setMessage("Section refreshed.");
+    });
+  };
+
   const updateRole = async (
     user: ManagedUser,
     nextRole: Role,
@@ -360,8 +490,8 @@ export default function SuperAdminPage() {
             : {}),
         }),
       });
+      await loadUsers(true);
       setMessage(`Updated ${user.email}.`);
-      await loadData();
     });
   };
 
@@ -375,8 +505,8 @@ export default function SuperAdminPage() {
       await authFetch(`/api/super-admin/users/${user.id}`, {
         method: "DELETE",
       });
+      await loadUsers(true);
       setMessage(`Deleted ${user.email}.`);
-      await loadData();
     });
   };
 
@@ -397,8 +527,8 @@ export default function SuperAdminPage() {
         method: "PUT",
         body: JSON.stringify({ canalIds: uniqueSorted(adminSelectedCanals) }),
       });
+      await loadUsers(true);
       setMessage("Direct canal assignments updated.");
-      await loadData();
     });
   };
 
@@ -455,8 +585,8 @@ export default function SuperAdminPage() {
         }),
       });
 
+      await loadUsers(true);
       setMessage(`Updated access for ${selectedUser.email}.`);
-      await loadData();
     });
   };
 
@@ -525,17 +655,16 @@ export default function SuperAdminPage() {
           method: "PATCH",
           body: JSON.stringify(payload),
         });
-        setMessage("Group updated.");
       } else {
         await authFetch(`/api/super-admin/groups`, {
           method: "POST",
           body: JSON.stringify(payload),
         });
-        setMessage("Group created.");
       }
 
       resetGroupForm();
-      await loadData();
+      await Promise.all([loadGroups(true), loadUsers(true)]);
+      setMessage(editingGroupId ? "Group updated." : "Group created.");
     });
   };
 
@@ -550,8 +679,8 @@ export default function SuperAdminPage() {
       if (editingGroupId === groupId) {
         resetGroupForm();
       }
+      await Promise.all([loadGroups(true), loadUsers(true)]);
       setMessage("Group deleted.");
-      await loadData();
     });
   };
 
@@ -572,8 +701,8 @@ export default function SuperAdminPage() {
       });
       setNewDeviceId("");
       setNewDeviceCanalId("");
+      await loadDevices(true);
       setMessage("Device saved.");
-      await loadData();
     });
   };
 
@@ -585,8 +714,8 @@ export default function SuperAdminPage() {
         method: "PATCH",
         body: JSON.stringify({ canalId }),
       });
+      await loadDevices(true);
       setMessage(`Updated assignment for ${deviceId}.`);
-      await loadData();
     });
   };
 
@@ -604,8 +733,8 @@ export default function SuperAdminPage() {
           body: JSON.stringify({ reason: reason || "" }),
         },
       );
+      await loadDevices(true);
       setMessage(`${deviceId} decommissioned.`);
-      await loadData();
     });
   };
 
@@ -615,8 +744,8 @@ export default function SuperAdminPage() {
         `/api/super-admin/devices/${encodeURIComponent(deviceId)}/recommission`,
         { method: "POST" },
       );
+      await loadDevices(true);
       setMessage(`${deviceId} recommissioned.`);
-      await loadData();
     });
   };
 
@@ -630,10 +759,30 @@ export default function SuperAdminPage() {
       await authFetch(`/api/super-admin/devices/${encodeURIComponent(deviceId)}`, {
         method: "DELETE",
       });
+      await loadDevices(true);
       setMessage(`${deviceId} removed.`);
-      await loadData();
     });
   };
+
+  const accessOverridesLoading = usersLoading || groupsLoading || devicesLoading;
+  const directAssignmentLoading = usersLoading || canalsLoading;
+  const groupManagementLoading = groupsLoading || usersLoading || canalsLoading;
+  const deviceRegistryLoading = devicesLoading || canalsLoading;
+
+  const activeSectionLoading =
+    activeSection === "role-management"
+      ? usersLoading
+      : activeSection === "access-overrides"
+      ? accessOverridesLoading
+      : activeSection === "direct-canal-assignment"
+      ? directAssignmentLoading
+      : activeSection === "group-management"
+      ? groupManagementLoading
+      : activeSection === "login-audit"
+      ? logsLoading
+      : activeSection === "device-registry"
+      ? deviceRegistryLoading
+      : false;
 
   if (status === "loading") {
     return (
@@ -667,13 +816,17 @@ export default function SuperAdminPage() {
             Manage roles, canal access, canal groups, and device lifecycle.
           </p>
         </div>
-        <Button variant="outline" onClick={loadData} disabled={loading || busy}>
-          {loading || busy ? (
+        <Button
+          variant="outline"
+          onClick={refreshActiveSection}
+          disabled={!activeSection || busy || activeSectionLoading}
+        >
+          {busy || activeSectionLoading ? (
             <Loader2 className="w-4 h-4 mr-1.5 animate-spin" />
           ) : (
             <RefreshCw className="w-4 h-4 mr-1.5" />
           )}
-          Refresh
+          Refresh Active Panel
         </Button>
       </div>
 
@@ -696,25 +849,33 @@ export default function SuperAdminPage() {
         <Card>
           <CardContent className="pt-6">
             <p className="text-xs text-muted-foreground">Users</p>
-            <p className="text-2xl font-semibold">{users.length}</p>
+            <p className="text-2xl font-semibold">
+              {hasLoadedUsers ? users.length : "--"}
+            </p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="pt-6">
             <p className="text-xs text-muted-foreground">Admins</p>
-            <p className="text-2xl font-semibold">{admins.length}</p>
+            <p className="text-2xl font-semibold">
+              {hasLoadedUsers ? admins.length : "--"}
+            </p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="pt-6">
             <p className="text-xs text-muted-foreground">Canal Groups</p>
-            <p className="text-2xl font-semibold">{groups.length}</p>
+            <p className="text-2xl font-semibold">
+              {hasLoadedGroups ? groups.length : "--"}
+            </p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="pt-6">
             <p className="text-xs text-muted-foreground">Device IDs</p>
-            <p className="text-2xl font-semibold">{devices.length}</p>
+            <p className="text-2xl font-semibold">
+              {hasLoadedDevices ? devices.length : "--"}
+            </p>
           </CardContent>
         </Card>
       </div>
@@ -725,17 +886,22 @@ export default function SuperAdminPage() {
         </CardHeader>
         <CardContent className="space-y-4">
           <p className="text-sm text-muted-foreground">
-            Jump to the exact admin section you need and follow a simple workflow.
+            Click one option to open only that panel below. Initially nothing is open.
           </p>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
             {quickSections.map((section) => {
               const Icon = section.icon;
+              const isActive = activeSection === section.id;
               return (
-                <a
+                <button
                   key={section.id}
-                  href={`#${section.id}`}
-                  className="group rounded-lg border bg-background px-3 py-3 transition-colors hover:border-primary/40 hover:bg-primary/5"
+                  type="button"
+                  onClick={() => handleQuickSectionToggle(section.id)}
+                  aria-pressed={isActive}
+                  className={`group rounded-lg border bg-background px-3 py-3 text-left transition-colors hover:border-primary/40 hover:bg-primary/5 ${
+                    isActive ? "border-primary bg-primary/10" : ""
+                  }`}
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
@@ -746,685 +912,744 @@ export default function SuperAdminPage() {
                         {section.description}
                       </p>
                     </div>
-                    <Icon className="w-4 h-4 shrink-0 text-muted-foreground group-hover:text-primary" />
+                    <Icon
+                      className={`w-4 h-4 shrink-0 ${
+                        isActive
+                          ? "text-primary"
+                          : "text-muted-foreground group-hover:text-primary"
+                      }`}
+                    />
                   </div>
                   <p className="mt-3 text-xs font-medium text-primary/90">
                     {section.stat}
                   </p>
-                </a>
+                </button>
               );
             })}
           </div>
-
-          <div className="rounded-lg border bg-background px-3 py-2.5 text-xs text-muted-foreground">
-            Recommended flow: 1. Roles, 2. User access, 3. Admin canal assignment,
-            4. Group setup, 5. Device registry, 6. Login audit.
-          </div>
         </CardContent>
       </Card>
 
-      <Card id="role-management" className="scroll-mt-24">
-        <CardHeader>
-          <CardTitle className="text-base flex items-center gap-2">
-            <Users className="w-4 h-4" /> User Role Management
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          {loading ? (
-            <p className="text-sm text-muted-foreground">Loading users...</p>
-          ) : (
-            <div className="rounded-md border overflow-x-auto">
-              <table className="w-full min-w-180 text-sm">
-                <thead className="bg-muted/40 text-muted-foreground">
-                  <tr>
-                    <th className="text-left px-3 py-2">Name</th>
-                    <th className="text-left px-3 py-2">Email</th>
-                    <th className="text-left px-3 py-2">Status</th>
-                    <th className="text-left px-3 py-2">Role</th>
-                    <th className="text-left px-3 py-2">Groups</th>
-                    <th className="text-left px-3 py-2">Canals</th>
-                    <th className="text-right px-3 py-2">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {users.map((user) => (
-                    <tr key={user.id} className="border-t">
-                      <td className="px-3 py-2">{user.name}</td>
-                      <td className="px-3 py-2 font-mono text-xs">{user.email}</td>
-                      <td className="px-3 py-2">
-                        <Badge variant={user.isApproved ? "default" : "outline"}>
-                          {user.isApproved ? "Active" : "Pending"}
-                        </Badge>
-                      </td>
-                      <td className="px-3 py-2">
-                        <select
-                          className="h-8 rounded-md border bg-background px-2"
-                          value={user.role}
-                          disabled={busy}
-                          onChange={(e) =>
-                            updateRole(user, e.target.value as Role)
-                          }
-                        >
-                          <option value="user">user</option>
-                          <option value="admin">admin</option>
-                          <option value="superadmin">superadmin</option>
-                        </select>
-                      </td>
-                      <td className="px-3 py-2 text-xs text-muted-foreground">
-                        {user.groupNames.length > 0
-                          ? user.groupNames.join(", ")
-                          : "No groups"}
-                      </td>
-                      <td className="px-3 py-2 text-xs text-muted-foreground">
-                        {user.role === "superadmin"
-                          ? "All canals"
-                          : user.role === "admin"
-                          ? `${user.directAssignedCanals.length} direct / ${user.effectiveCanalIds.length} effective`
-                          : "-"}
-                      </td>
-                      <td className="px-3 py-2 text-right">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          disabled={busy || user.isApproved}
-                          onClick={() => approvePendingUser(user)}
-                        >
-                          Activate
-                        </Button>
-                        <Button
-                          variant="destructive"
-                          size="sm"
-                          disabled={busy || user.id === currentUserId}
-                          onClick={() => deleteUser(user)}
-                          className="ml-2"
-                        >
-                          <Trash2 className="w-3.5 h-3.5 mr-1" />
-                          Delete
-                        </Button>
-                      </td>
+      {!activeSection && (
+        <Card>
+          <CardContent className="py-10 text-center text-sm text-muted-foreground">
+            Select a Quick Menu option to open that panel.
+          </CardContent>
+        </Card>
+      )}
+
+      {activeSection === "role-management" && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base flex items-center gap-2">
+              <Users className="w-4 h-4" /> User Role Management
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {usersLoading && !hasLoadedUsers ? (
+              <p className="text-sm text-muted-foreground">Loading users...</p>
+            ) : users.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No users found.</p>
+            ) : (
+              <div className="rounded-md border overflow-x-auto">
+                <table className="w-full min-w-180 text-sm">
+                  <thead className="bg-muted/40 text-muted-foreground">
+                    <tr>
+                      <th className="text-left px-3 py-2">Name</th>
+                      <th className="text-left px-3 py-2">Email</th>
+                      <th className="text-left px-3 py-2">Status</th>
+                      <th className="text-left px-3 py-2">Role</th>
+                      <th className="text-left px-3 py-2">Groups</th>
+                      <th className="text-left px-3 py-2">Canals</th>
+                      <th className="text-right px-3 py-2">Actions</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </CardContent>
-      </Card>
+                  </thead>
+                  <tbody>
+                    {users.map((user) => (
+                      <tr key={user.id} className="border-t">
+                        <td className="px-3 py-2">{user.name}</td>
+                        <td className="px-3 py-2 font-mono text-xs">{user.email}</td>
+                        <td className="px-3 py-2">
+                          <Badge variant={user.isApproved ? "default" : "outline"}>
+                            {user.isApproved ? "Active" : "Pending"}
+                          </Badge>
+                        </td>
+                        <td className="px-3 py-2">
+                          <select
+                            className="h-8 rounded-md border bg-background px-2"
+                            value={user.role}
+                            disabled={busy}
+                            onChange={(e) =>
+                              updateRole(user, e.target.value as Role)
+                            }
+                          >
+                            <option value="user">user</option>
+                            <option value="admin">admin</option>
+                            <option value="superadmin">superadmin</option>
+                          </select>
+                        </td>
+                        <td className="px-3 py-2 text-xs text-muted-foreground">
+                          {user.groupNames.length > 0
+                            ? user.groupNames.join(", ")
+                            : "No groups"}
+                        </td>
+                        <td className="px-3 py-2 text-xs text-muted-foreground">
+                          {user.role === "superadmin"
+                            ? "All canals"
+                            : user.role === "admin"
+                            ? `${user.directAssignedCanals.length} direct / ${user.effectiveCanalIds.length} effective`
+                            : "-"}
+                        </td>
+                        <td className="px-3 py-2 text-right">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            disabled={busy || user.isApproved}
+                            onClick={() => approvePendingUser(user)}
+                          >
+                            Activate
+                          </Button>
+                          <Button
+                            variant="destructive"
+                            size="sm"
+                            disabled={busy || user.id === currentUserId}
+                            onClick={() => deleteUser(user)}
+                            className="ml-2"
+                          >
+                            <Trash2 className="w-3.5 h-3.5 mr-1" />
+                            Delete
+                          </Button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
-      <Card id="access-overrides" className="scroll-mt-24">
-        <CardHeader>
-          <CardTitle className="text-base">User Access Overrides</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {users.filter((user) => user.role === "user").length === 0 ? (
-            <p className="text-sm text-muted-foreground">
-              No user-role accounts available.
-            </p>
-          ) : (
-            <>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <div className="space-y-1">
-                  <Label>Select User</Label>
-                  <select
-                    className="h-10 w-full rounded-md border bg-background px-3"
-                    value={selectedUserId}
-                    onChange={(e) => setSelectedUserId(e.target.value)}
-                    disabled={busy}
-                  >
-                    {users
-                      .filter((user) => user.role === "user")
-                      .map((user) => (
-                        <option key={user.id} value={user.id}>
-                          {user.name} ({user.email})
+      {activeSection === "access-overrides" && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">User Access Overrides</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {accessOverridesLoading &&
+            (!hasLoadedUsers || !hasLoadedGroups || !hasLoadedDevices) ? (
+              <p className="text-sm text-muted-foreground">
+                Loading access controls...
+              </p>
+            ) : users.filter((user) => user.role === "user").length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                No user-role accounts available.
+              </p>
+            ) : (
+              <>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <Label>Select User</Label>
+                    <select
+                      className="h-10 w-full rounded-md border bg-background px-3"
+                      value={selectedUserId}
+                      onChange={(e) => setSelectedUserId(e.target.value)}
+                      disabled={busy}
+                    >
+                      {users
+                        .filter((user) => user.role === "user")
+                        .map((user) => (
+                          <option key={user.id} value={user.id}>
+                            {user.name} ({user.email})
+                          </option>
+                        ))}
+                    </select>
+                  </div>
+
+                  <div className="space-y-1">
+                    <Label>Managing Admin</Label>
+                    <select
+                      className="h-10 w-full rounded-md border bg-background px-3"
+                      value={userManagedByAdminId}
+                      onChange={(e) => setUserManagedByAdminId(e.target.value)}
+                      disabled={busy}
+                    >
+                      <option value="">No manager</option>
+                      {admins.map((admin) => (
+                        <option key={admin.id} value={admin.id}>
+                          {admin.name} ({admin.email})
                         </option>
                       ))}
-                  </select>
+                    </select>
+                  </div>
                 </div>
 
-                <div className="space-y-1">
-                  <Label>Managing Admin</Label>
-                  <select
-                    className="h-10 w-full rounded-md border bg-background px-3"
-                    value={userManagedByAdminId}
-                    onChange={(e) => setUserManagedByAdminId(e.target.value)}
-                    disabled={busy}
-                  >
-                    <option value="">No manager</option>
-                    {admins.map((admin) => (
-                      <option key={admin.id} value={admin.id}>
-                        {admin.name} ({admin.email})
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <p className="text-xs text-muted-foreground">
+                      Extra groups ({userExtraGroupIds.size} selected)
+                    </p>
+                    <div className="max-h-52 overflow-auto rounded-md border p-2 space-y-1">
+                      {groups.map((group) => (
+                        <label
+                          key={group.id}
+                          className="flex items-center gap-2 text-xs"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={userExtraGroupIds.has(group.id)}
+                            onChange={() => toggleUserExtraGroup(group.id)}
+                            disabled={busy}
+                          />
+                          <span className="truncate">{group.name}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
 
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <p className="text-xs text-muted-foreground">
-                    Extra groups ({userExtraGroupIds.size} selected)
+                  <div className="space-y-2">
+                    <p className="text-xs text-muted-foreground">
+                      Device visibility (+allow / -hide)
+                    </p>
+                    <div className="max-h-52 overflow-auto rounded-md border p-2 space-y-2">
+                      {devices.map((device) => (
+                        <div
+                          key={device.deviceId}
+                          className="rounded-md border px-2 py-1.5"
+                        >
+                          <p className="text-xs font-medium">{device.deviceId}</p>
+                          <div className="mt-1 flex items-center gap-3 text-xs">
+                            <label className="flex items-center gap-1.5">
+                              <input
+                                type="checkbox"
+                                checked={userAllowedDeviceIds.has(device.deviceId)}
+                                onChange={() => toggleAllowedDevice(device.deviceId)}
+                                disabled={busy}
+                              />
+                              Allow
+                            </label>
+                            <label className="flex items-center gap-1.5">
+                              <input
+                                type="checkbox"
+                                checked={userHiddenDeviceIds.has(device.deviceId)}
+                                onChange={() => toggleHiddenDevice(device.deviceId)}
+                                disabled={busy}
+                              />
+                              Hide
+                            </label>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="text-xs text-muted-foreground">
+                  Effective groups: {selectedUser?.effectiveGroupIds.length || 0} |
+                  Effective canals: {selectedUser?.effectiveCanalIds.length || 0}
+                </div>
+
+                <Button onClick={saveUserAccess} disabled={busy || !selectedUser}>
+                  {busy ? <Loader2 className="w-4 h-4 mr-1.5 animate-spin" /> : null}
+                  Save User Access
+                </Button>
+              </>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {activeSection === "direct-canal-assignment" && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base flex items-center gap-2">
+              <Link2 className="w-4 h-4" /> Direct Canal Assignment (Per Admin)
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {directAssignmentLoading && (!hasLoadedUsers || !hasLoadedCanals) ? (
+              <p className="text-sm text-muted-foreground">
+                Loading admin assignments...
+              </p>
+            ) : admins.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                Promote a user to admin to manage direct canal assignments.
+              </p>
+            ) : (
+              <>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <Label>Select Admin</Label>
+                    <select
+                      className="h-10 w-full rounded-md border bg-background px-3"
+                      value={selectedAdminId}
+                      onChange={(e) => setSelectedAdminId(e.target.value)}
+                      disabled={busy}
+                    >
+                      {admins.map((admin) => (
+                        <option key={admin.id} value={admin.id}>
+                          {admin.name} ({admin.email})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="space-y-1 text-sm text-muted-foreground">
+                    <p>Direct canals: {selectedAdmin?.directAssignedCanals.length || 0}</p>
+                    <p>
+                      Effective canals (direct + groups):
+                      {" "}
+                      {selectedAdmin?.effectiveCanalIds.length || 0}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="rounded-lg border p-3">
+                  <p className="text-xs text-muted-foreground mb-2">
+                    Select canals this admin should access directly.
                   </p>
-                  <div className="max-h-52 overflow-auto rounded-md border p-2 space-y-1">
-                    {groups.map((group) => (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 max-h-64 overflow-auto pr-1">
+                    {canals.map((canal) => (
                       <label
-                        key={group.id}
-                        className="flex items-center gap-2 text-xs"
+                        key={canal.canalId}
+                        className="flex items-center gap-2 rounded-md border px-2 py-1.5 text-xs"
                       >
                         <input
                           type="checkbox"
-                          checked={userExtraGroupIds.has(group.id)}
-                          onChange={() => toggleUserExtraGroup(group.id)}
+                          checked={adminSelectedCanals.has(canal.canalId)}
+                          onChange={() => toggleAdminCanal(canal.canalId)}
                           disabled={busy}
                         />
-                        <span className="truncate">{group.name}</span>
+                        <span className="truncate">
+                          {canal.name} ({canal.canalId})
+                        </span>
                       </label>
                     ))}
                   </div>
                 </div>
 
-                <div className="space-y-2">
-                  <p className="text-xs text-muted-foreground">
-                    Device visibility (+allow / -hide)
-                  </p>
-                  <div className="max-h-52 overflow-auto rounded-md border p-2 space-y-2">
-                    {devices.map((device) => (
-                      <div
-                        key={device.deviceId}
-                        className="rounded-md border px-2 py-1.5"
-                      >
-                        <p className="text-xs font-medium">{device.deviceId}</p>
-                        <div className="mt-1 flex items-center gap-3 text-xs">
-                          <label className="flex items-center gap-1.5">
+                <Button
+                  onClick={saveAdminCanals}
+                  disabled={busy || !selectedAdminId}
+                >
+                  {busy ? <Loader2 className="w-4 h-4 mr-1.5 animate-spin" /> : null}
+                  Save Direct Assignments
+                </Button>
+              </>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {activeSection === "group-management" && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Canal Group Management</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {groupManagementLoading &&
+            (!hasLoadedGroups || !hasLoadedUsers || !hasLoadedCanals) ? (
+              <p className="text-sm text-muted-foreground">Loading group tools...</p>
+            ) : (
+              <>
+                <div className="rounded-lg border p-3 space-y-3">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div className="space-y-1">
+                      <Label htmlFor="groupName">Group Name</Label>
+                      <Input
+                        id="groupName"
+                        value={groupName}
+                        onChange={(e) => setGroupName(e.target.value)}
+                        placeholder="e.g. Section A Officers"
+                        disabled={busy}
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label htmlFor="groupDescription">Description</Label>
+                      <Input
+                        id="groupDescription"
+                        value={groupDescription}
+                        onChange={(e) => setGroupDescription(e.target.value)}
+                        placeholder="Optional"
+                        disabled={busy}
+                      />
+                    </div>
+                  </div>
+
+                  <label className="flex items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={groupIsActive}
+                      onChange={(e) => setGroupIsActive(e.target.checked)}
+                      disabled={busy}
+                    />
+                    Group is active
+                  </label>
+
+                  <Separator />
+
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <p className="text-xs text-muted-foreground">
+                        Admin members ({groupAdminIds.size} selected)
+                      </p>
+                      <div className="max-h-44 overflow-auto rounded-md border p-2 space-y-1">
+                        {admins.map((admin) => (
+                          <label
+                            key={admin.id}
+                            className="flex items-center gap-2 text-xs"
+                          >
                             <input
                               type="checkbox"
-                              checked={userAllowedDeviceIds.has(device.deviceId)}
-                              onChange={() => toggleAllowedDevice(device.deviceId)}
+                              checked={groupAdminIds.has(admin.id)}
+                              onChange={() => toggleGroupAdmin(admin.id)}
                               disabled={busy}
                             />
-                            Allow
+                            <span className="truncate">
+                              {admin.name} ({admin.email})
+                            </span>
                           </label>
-                          <label className="flex items-center gap-1.5">
-                            <input
-                              type="checkbox"
-                              checked={userHiddenDeviceIds.has(device.deviceId)}
-                              onChange={() => toggleHiddenDevice(device.deviceId)}
-                              disabled={busy}
-                            />
-                            Hide
-                          </label>
-                        </div>
+                        ))}
                       </div>
-                    ))}
+                    </div>
+
+                    <div className="space-y-2">
+                      <p className="text-xs text-muted-foreground">
+                        Group canals ({groupCanalIds.size} selected)
+                      </p>
+                      <div className="max-h-44 overflow-auto rounded-md border p-2 space-y-1">
+                        {canals.map((canal) => (
+                          <label
+                            key={canal.canalId}
+                            className="flex items-center gap-2 text-xs"
+                          >
+                            <input
+                              type="checkbox"
+                              checked={groupCanalIds.has(canal.canalId)}
+                              onChange={() => toggleGroupCanal(canal.canalId)}
+                              disabled={busy}
+                            />
+                            <span className="truncate">
+                              {canal.name} ({canal.canalId})
+                            </span>
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap gap-2">
+                    <Button onClick={saveGroup} disabled={busy}>
+                      {busy ? (
+                        <Loader2 className="w-4 h-4 mr-1.5 animate-spin" />
+                      ) : null}
+                      {editingGroupId ? "Update Group" : "Create Group"}
+                    </Button>
+                    {(editingGroupId || groupName || groupDescription) && (
+                      <Button
+                        variant="outline"
+                        onClick={resetGroupForm}
+                        disabled={busy}
+                      >
+                        Cancel
+                      </Button>
+                    )}
                   </div>
                 </div>
-              </div>
 
-              <div className="text-xs text-muted-foreground">
-                Effective groups: {selectedUser?.effectiveGroupIds.length || 0} | Effective canals: {selectedUser?.effectiveCanalIds.length || 0}
-              </div>
-
-              <Button onClick={saveUserAccess} disabled={busy || !selectedUser}>
-                {busy ? <Loader2 className="w-4 h-4 mr-1.5 animate-spin" /> : null}
-                Save User Access
-              </Button>
-            </>
-          )}
-        </CardContent>
-      </Card>
-
-      <Card id="direct-canal-assignment" className="scroll-mt-24">
-        <CardHeader>
-          <CardTitle className="text-base flex items-center gap-2">
-            <Link2 className="w-4 h-4" /> Direct Canal Assignment (Per Admin)
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {admins.length === 0 ? (
-            <p className="text-sm text-muted-foreground">
-              Promote a user to admin to manage direct canal assignments.
-            </p>
-          ) : (
-            <>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <div className="space-y-1">
-                  <Label>Select Admin</Label>
-                  <select
-                    className="h-10 w-full rounded-md border bg-background px-3"
-                    value={selectedAdminId}
-                    onChange={(e) => setSelectedAdminId(e.target.value)}
-                    disabled={busy}
-                  >
-                    {admins.map((admin) => (
-                      <option key={admin.id} value={admin.id}>
-                        {admin.name} ({admin.email})
-                      </option>
-                    ))}
-                  </select>
+                <div className="rounded-md border overflow-x-auto">
+                  <table className="w-full min-w-160 text-sm">
+                    <thead className="bg-muted/40 text-muted-foreground">
+                      <tr>
+                        <th className="text-left px-3 py-2">Group</th>
+                        <th className="text-left px-3 py-2">Members</th>
+                        <th className="text-left px-3 py-2">Canals</th>
+                        <th className="text-left px-3 py-2">Status</th>
+                        <th className="text-right px-3 py-2">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {groups.length === 0 ? (
+                        <tr>
+                          <td className="px-3 py-3 text-muted-foreground" colSpan={5}>
+                            No canal groups yet.
+                          </td>
+                        </tr>
+                      ) : (
+                        groups.map((group) => (
+                          <tr key={group.id} className="border-t">
+                            <td className="px-3 py-2">
+                              <p className="font-medium">{group.name}</p>
+                              {group.description && (
+                                <p className="text-xs text-muted-foreground">
+                                  {group.description}
+                                </p>
+                              )}
+                            </td>
+                            <td className="px-3 py-2 text-xs text-muted-foreground">
+                              {group.adminUserIds.length}
+                            </td>
+                            <td className="px-3 py-2 text-xs text-muted-foreground">
+                              {group.canalIds.length}
+                            </td>
+                            <td className="px-3 py-2">
+                              <Badge variant={group.isActive ? "default" : "outline"}>
+                                {group.isActive ? "Active" : "Inactive"}
+                              </Badge>
+                            </td>
+                            <td className="px-3 py-2 text-right">
+                              <div className="inline-flex gap-2">
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => startEditGroup(group)}
+                                  disabled={busy}
+                                >
+                                  Edit
+                                </Button>
+                                <Button
+                                  variant="destructive"
+                                  size="sm"
+                                  onClick={() => deleteGroup(group.id, group.name)}
+                                  disabled={busy}
+                                >
+                                  <Trash2 className="w-3.5 h-3.5 mr-1" />
+                                  Delete
+                                </Button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
                 </div>
-                <div className="space-y-1 text-sm text-muted-foreground">
-                  <p>Direct canals: {selectedAdmin?.directAssignedCanals.length || 0}</p>
-                  <p>
-                    Effective canals (direct + groups): {selectedAdmin?.effectiveCanalIds.length || 0}
-                  </p>
-                </div>
-              </div>
+              </>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
-              <div className="rounded-lg border p-3">
-                <p className="text-xs text-muted-foreground mb-2">
-                  Select canals this admin should access directly.
-                </p>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 max-h-64 overflow-auto pr-1">
-                  {canals.map((canal) => (
-                    <label
-                      key={canal.canalId}
-                      className="flex items-center gap-2 rounded-md border px-2 py-1.5 text-xs"
-                    >
-                      <input
-                        type="checkbox"
-                        checked={adminSelectedCanals.has(canal.canalId)}
-                        onChange={() => toggleAdminCanal(canal.canalId)}
-                        disabled={busy}
-                      />
-                      <span className="truncate">
-                        {canal.name} ({canal.canalId})
-                      </span>
-                    </label>
-                  ))}
-                </div>
-              </div>
-
-              <Button onClick={saveAdminCanals} disabled={busy || !selectedAdminId}>
-                {busy ? (
-                  <Loader2 className="w-4 h-4 mr-1.5 animate-spin" />
-                ) : null}
-                Save Direct Assignments
-              </Button>
-            </>
-          )}
-        </CardContent>
-      </Card>
-
-      <Card id="group-management" className="scroll-mt-24">
-        <CardHeader>
-          <CardTitle className="text-base">Canal Group Management</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="rounded-lg border p-3 space-y-3">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <div className="space-y-1">
-                <Label htmlFor="groupName">Group Name</Label>
-                <Input
-                  id="groupName"
-                  value={groupName}
-                  onChange={(e) => setGroupName(e.target.value)}
-                  placeholder="e.g. Section A Officers"
-                  disabled={busy}
-                />
-              </div>
-              <div className="space-y-1">
-                <Label htmlFor="groupDescription">Description</Label>
-                <Input
-                  id="groupDescription"
-                  value={groupDescription}
-                  onChange={(e) => setGroupDescription(e.target.value)}
-                  placeholder="Optional"
-                  disabled={busy}
-                />
-              </div>
-            </div>
-
-            <label className="flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                checked={groupIsActive}
-                onChange={(e) => setGroupIsActive(e.target.checked)}
-                disabled={busy}
-              />
-              Group is active
-            </label>
-
-            <Separator />
-
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <p className="text-xs text-muted-foreground">
-                  Admin members ({groupAdminIds.size} selected)
-                </p>
-                <div className="max-h-44 overflow-auto rounded-md border p-2 space-y-1">
-                  {admins.map((admin) => (
-                    <label
-                      key={admin.id}
-                      className="flex items-center gap-2 text-xs"
-                    >
-                      <input
-                        type="checkbox"
-                        checked={groupAdminIds.has(admin.id)}
-                        onChange={() => toggleGroupAdmin(admin.id)}
-                        disabled={busy}
-                      />
-                      <span className="truncate">{admin.name} ({admin.email})</span>
-                    </label>
-                  ))}
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <p className="text-xs text-muted-foreground">
-                  Group canals ({groupCanalIds.size} selected)
-                </p>
-                <div className="max-h-44 overflow-auto rounded-md border p-2 space-y-1">
-                  {canals.map((canal) => (
-                    <label
-                      key={canal.canalId}
-                      className="flex items-center gap-2 text-xs"
-                    >
-                      <input
-                        type="checkbox"
-                        checked={groupCanalIds.has(canal.canalId)}
-                        onChange={() => toggleGroupCanal(canal.canalId)}
-                        disabled={busy}
-                      />
-                      <span className="truncate">{canal.name} ({canal.canalId})</span>
-                    </label>
-                  ))}
-                </div>
-              </div>
-            </div>
-
-            <div className="flex flex-wrap gap-2">
-              <Button onClick={saveGroup} disabled={busy}>
-                {busy ? <Loader2 className="w-4 h-4 mr-1.5 animate-spin" /> : null}
-                {editingGroupId ? "Update Group" : "Create Group"}
-              </Button>
-              {(editingGroupId || groupName || groupDescription) && (
-                <Button variant="outline" onClick={resetGroupForm} disabled={busy}>
-                  Cancel
-                </Button>
-              )}
-            </div>
-          </div>
-
-          <div className="rounded-md border overflow-x-auto">
-            <table className="w-full min-w-160 text-sm">
-              <thead className="bg-muted/40 text-muted-foreground">
-                <tr>
-                  <th className="text-left px-3 py-2">Group</th>
-                  <th className="text-left px-3 py-2">Members</th>
-                  <th className="text-left px-3 py-2">Canals</th>
-                  <th className="text-left px-3 py-2">Status</th>
-                  <th className="text-right px-3 py-2">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {groups.length === 0 ? (
-                  <tr>
-                    <td className="px-3 py-3 text-muted-foreground" colSpan={5}>
-                      No canal groups yet.
-                    </td>
-                  </tr>
-                ) : (
-                  groups.map((group) => (
-                    <tr key={group.id} className="border-t">
-                      <td className="px-3 py-2">
-                        <p className="font-medium">{group.name}</p>
-                        {group.description && (
-                          <p className="text-xs text-muted-foreground">
-                            {group.description}
+      {activeSection === "login-audit" && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Login Audit (Admin & User)</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {logsLoading && !hasLoadedLogs ? (
+              <p className="text-sm text-muted-foreground">Loading logs...</p>
+            ) : loginLogs.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No login logs found.</p>
+            ) : (
+              <div className="rounded-md border overflow-x-auto">
+                <table className="w-full min-w-160 text-sm">
+                  <thead className="bg-muted/40 text-muted-foreground">
+                    <tr>
+                      <th className="text-left px-3 py-2">Time</th>
+                      <th className="text-left px-3 py-2">Role</th>
+                      <th className="text-left px-3 py-2">User</th>
+                      <th className="text-left px-3 py-2">Manager</th>
+                      <th className="text-left px-3 py-2">IP</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {loginLogs.map((log) => (
+                      <tr key={log.id} className="border-t align-top">
+                        <td className="px-3 py-2 whitespace-nowrap">
+                          {new Date(log.loginAt).toLocaleString()}
+                        </td>
+                        <td className="px-3 py-2">
+                          <Badge variant="outline">{log.role}</Badge>
+                        </td>
+                        <td className="px-3 py-2">
+                          <p>{log.userName}</p>
+                          <p className="font-mono text-xs text-muted-foreground">
+                            {log.email}
                           </p>
-                        )}
-                      </td>
-                      <td className="px-3 py-2 text-xs text-muted-foreground">
-                        {group.adminUserIds.length}
-                      </td>
-                      <td className="px-3 py-2 text-xs text-muted-foreground">
-                        {group.canalIds.length}
-                      </td>
-                      <td className="px-3 py-2">
-                        <Badge variant={group.isActive ? "default" : "outline"}>
-                          {group.isActive ? "Active" : "Inactive"}
-                        </Badge>
-                      </td>
-                      <td className="px-3 py-2 text-right">
-                        <div className="inline-flex gap-2">
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => startEditGroup(group)}
-                            disabled={busy}
-                          >
-                            Edit
-                          </Button>
-                          <Button
-                            variant="destructive"
-                            size="sm"
-                            onClick={() => deleteGroup(group.id, group.name)}
-                            disabled={busy}
-                          >
-                            <Trash2 className="w-3.5 h-3.5 mr-1" />
-                            Delete
-                          </Button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-        </CardContent>
-      </Card>
+                        </td>
+                        <td className="px-3 py-2 text-xs text-muted-foreground">
+                          {log.managedByAdmin?.name || "-"}
+                        </td>
+                        <td className="px-3 py-2 font-mono text-xs">
+                          {log.ipAddress || "-"}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
-      <Card id="login-audit" className="scroll-mt-24">
-        <CardHeader>
-          <CardTitle className="text-base">Login Audit (Admin & User)</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {loginLogs.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No login logs found.</p>
-          ) : (
-            <div className="rounded-md border overflow-x-auto">
-              <table className="w-full min-w-220 text-sm">
-                <thead className="bg-muted/40 text-muted-foreground">
-                  <tr>
-                    <th className="text-left px-3 py-2">Time</th>
-                    <th className="text-left px-3 py-2">Role</th>
-                    <th className="text-left px-3 py-2">User</th>
-                    <th className="text-left px-3 py-2">Manager</th>
-                    <th className="text-left px-3 py-2">IP</th>
-                    <th className="text-left px-3 py-2">Client</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {loginLogs.map((log) => (
-                    <tr key={log.id} className="border-t align-top">
-                      <td className="px-3 py-2 whitespace-nowrap">
-                        {new Date(log.loginAt).toLocaleString()}
-                      </td>
-                      <td className="px-3 py-2">
-                        <Badge variant="outline">{log.role}</Badge>
-                      </td>
-                      <td className="px-3 py-2">
-                        <p>{log.userName}</p>
-                        <p className="font-mono text-xs text-muted-foreground">
-                          {log.email}
-                        </p>
-                      </td>
-                      <td className="px-3 py-2 text-xs text-muted-foreground">
-                        {log.managedByAdmin?.name || "-"}
-                      </td>
-                      <td className="px-3 py-2 font-mono text-xs">
-                        {log.ipAddress || "-"}
-                      </td>
-                      <td className="px-3 py-2 text-xs text-muted-foreground max-w-120 break-all">
-                        {log.userAgent || "-"}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </CardContent>
-      </Card>
+      {activeSection === "device-registry" && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base flex items-center gap-2">
+              <Cpu className="w-4 h-4" /> Device Registry & Decommissioning
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {deviceRegistryLoading && (!hasLoadedDevices || !hasLoadedCanals) ? (
+              <p className="text-sm text-muted-foreground">Loading devices...</p>
+            ) : (
+              <>
+                <div className="grid grid-cols-1 md:grid-cols-[1fr_1fr_auto] gap-2">
+                  <div className="space-y-1">
+                    <Label htmlFor="newDeviceId">Device ID</Label>
+                    <Input
+                      id="newDeviceId"
+                      value={newDeviceId}
+                      onChange={(e) => setNewDeviceId(e.target.value)}
+                      placeholder="ESP32_NEW_DEVICE_001"
+                      disabled={busy}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label>Assign to canal (optional)</Label>
+                    <select
+                      className="h-10 w-full rounded-md border bg-background px-3"
+                      value={newDeviceCanalId}
+                      onChange={(e) => setNewDeviceCanalId(e.target.value)}
+                      disabled={busy}
+                    >
+                      <option value="">Unassigned</option>
+                      {canals.map((canal) => (
+                        <option key={canal.canalId} value={canal.canalId}>
+                          {canal.name} ({canal.canalId})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="flex items-end">
+                    <Button onClick={addDevice} disabled={busy}>
+                      Add Device
+                    </Button>
+                  </div>
+                </div>
 
-      <Card id="device-registry" className="scroll-mt-24">
-        <CardHeader>
-          <CardTitle className="text-base flex items-center gap-2">
-            <Cpu className="w-4 h-4" /> Device Registry & Decommissioning
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-[1fr_1fr_auto] gap-2">
-            <div className="space-y-1">
-              <Label htmlFor="newDeviceId">Device ID</Label>
-              <Input
-                id="newDeviceId"
-                value={newDeviceId}
-                onChange={(e) => setNewDeviceId(e.target.value)}
-                placeholder="ESP32_NEW_DEVICE_001"
-                disabled={busy}
-              />
-            </div>
-            <div className="space-y-1">
-              <Label>Assign to canal (optional)</Label>
-              <select
-                className="h-10 w-full rounded-md border bg-background px-3"
-                value={newDeviceCanalId}
-                onChange={(e) => setNewDeviceCanalId(e.target.value)}
-                disabled={busy}
-              >
-                <option value="">Unassigned</option>
-                {canals.map((canal) => (
-                  <option key={canal.canalId} value={canal.canalId}>
-                    {canal.name} ({canal.canalId})
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="flex items-end">
-              <Button onClick={addDevice} disabled={busy}>
-                Add Device
-              </Button>
-            </div>
-          </div>
-
-          <div className="rounded-md border overflow-x-auto">
-            <table className="w-full min-w-220 text-sm">
-              <thead className="bg-muted/40 text-muted-foreground">
-                <tr>
-                  <th className="text-left px-3 py-2">Device ID</th>
-                  <th className="text-left px-3 py-2">Status</th>
-                  <th className="text-left px-3 py-2">Assigned Canal</th>
-                  <th className="text-left px-3 py-2">Decommission Info</th>
-                  <th className="text-right px-3 py-2">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {devices.length === 0 ? (
-                  <tr>
-                    <td className="px-3 py-3 text-muted-foreground" colSpan={5}>
-                      No devices in the registry.
-                    </td>
-                  </tr>
-                ) : (
-                  devices.map((device) => (
-                    <tr key={device.deviceId} className="border-t">
-                      <td className="px-3 py-2 font-mono text-xs">{device.deviceId}</td>
-                      <td className="px-3 py-2">
-                        <Badge
-                          variant={
-                            device.status === "decommissioned"
-                              ? "destructive"
-                              : "default"
-                          }
-                        >
-                          {device.status}
-                        </Badge>
-                      </td>
-                      <td className="px-3 py-2">
-                        <div className="flex gap-2">
-                          <select
-                            className="h-8 rounded-md border bg-background px-2 text-xs"
-                            value={deviceAssignDrafts[device.deviceId] || ""}
-                            disabled={busy || device.status === "decommissioned"}
-                            onChange={(e) =>
-                              setDeviceAssignDrafts((prev) => ({
-                                ...prev,
-                                [device.deviceId]: e.target.value,
-                              }))
-                            }
-                          >
-                            <option value="">Unassigned</option>
-                            {canals.map((canal) => (
-                              <option key={canal.canalId} value={canal.canalId}>
-                                {canal.canalId}
-                              </option>
-                            ))}
-                          </select>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => applyDeviceAssignment(device.deviceId)}
-                            disabled={busy || device.status === "decommissioned"}
-                          >
-                            Apply
-                          </Button>
-                        </div>
-                      </td>
-                      <td className="px-3 py-2 text-xs text-muted-foreground">
-                        {device.status === "decommissioned" ? (
-                          <>
-                            <p>{device.decommissionReason || "No reason provided"}</p>
-                            {device.decommissionedAt && (
-                              <p>
-                                {new Date(device.decommissionedAt).toLocaleString()}
-                              </p>
-                            )}
-                          </>
-                        ) : (
-                          "-"
-                        )}
-                      </td>
-                      <td className="px-3 py-2">
-                        <div className="flex justify-end gap-2 flex-wrap">
-                          {device.status === "decommissioned" ? (
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => recommissionDevice(device.deviceId)}
-                              disabled={busy}
-                            >
-                              Recommission
-                            </Button>
-                          ) : (
-                            <Button
-                              size="sm"
-                              variant="destructive"
-                              onClick={() => decommissionDevice(device.deviceId)}
-                              disabled={busy}
-                            >
-                              Decommission
-                            </Button>
-                          )}
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => deleteDevice(device.deviceId)}
-                            disabled={busy}
-                          >
-                            <Trash2 className="w-3.5 h-3.5 mr-1" />
-                            Remove
-                          </Button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-        </CardContent>
-      </Card>
+                <div className="rounded-md border overflow-x-auto">
+                  <table className="w-full min-w-220 text-sm">
+                    <thead className="bg-muted/40 text-muted-foreground">
+                      <tr>
+                        <th className="text-left px-3 py-2">Device ID</th>
+                        <th className="text-left px-3 py-2">Status</th>
+                        <th className="text-left px-3 py-2">Assigned Canal</th>
+                        <th className="text-left px-3 py-2">Decommission Info</th>
+                        <th className="text-right px-3 py-2">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {devices.length === 0 ? (
+                        <tr>
+                          <td className="px-3 py-3 text-muted-foreground" colSpan={5}>
+                            No devices in the registry.
+                          </td>
+                        </tr>
+                      ) : (
+                        devices.map((device) => (
+                          <tr key={device.deviceId} className="border-t">
+                            <td className="px-3 py-2 font-mono text-xs">
+                              {device.deviceId}
+                            </td>
+                            <td className="px-3 py-2">
+                              <Badge
+                                variant={
+                                  device.status === "decommissioned"
+                                    ? "destructive"
+                                    : "default"
+                                }
+                              >
+                                {device.status}
+                              </Badge>
+                            </td>
+                            <td className="px-3 py-2">
+                              <div className="flex gap-2">
+                                <select
+                                  className="h-8 rounded-md border bg-background px-2 text-xs"
+                                  value={deviceAssignDrafts[device.deviceId] || ""}
+                                  disabled={busy || device.status === "decommissioned"}
+                                  onChange={(e) =>
+                                    setDeviceAssignDrafts((prev) => ({
+                                      ...prev,
+                                      [device.deviceId]: e.target.value,
+                                    }))
+                                  }
+                                >
+                                  <option value="">Unassigned</option>
+                                  {canals.map((canal) => (
+                                    <option key={canal.canalId} value={canal.canalId}>
+                                      {canal.canalId}
+                                    </option>
+                                  ))}
+                                </select>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => applyDeviceAssignment(device.deviceId)}
+                                  disabled={busy || device.status === "decommissioned"}
+                                >
+                                  Apply
+                                </Button>
+                              </div>
+                            </td>
+                            <td className="px-3 py-2 text-xs text-muted-foreground">
+                              {device.status === "decommissioned" ? (
+                                <>
+                                  <p>{device.decommissionReason || "No reason provided"}</p>
+                                  {device.decommissionedAt && (
+                                    <p>
+                                      {new Date(device.decommissionedAt).toLocaleString()}
+                                    </p>
+                                  )}
+                                </>
+                              ) : (
+                                "-"
+                              )}
+                            </td>
+                            <td className="px-3 py-2">
+                              <div className="flex justify-end gap-2 flex-wrap">
+                                {device.status === "decommissioned" ? (
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => recommissionDevice(device.deviceId)}
+                                    disabled={busy}
+                                  >
+                                    Recommission
+                                  </Button>
+                                ) : (
+                                  <Button
+                                    size="sm"
+                                    variant="destructive"
+                                    onClick={() => decommissionDevice(device.deviceId)}
+                                    disabled={busy}
+                                  >
+                                    Decommission
+                                  </Button>
+                                )}
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => deleteDevice(device.deviceId)}
+                                  disabled={busy}
+                                >
+                                  <Trash2 className="w-3.5 h-3.5 mr-1" />
+                                  Remove
+                                </Button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            )}
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }
