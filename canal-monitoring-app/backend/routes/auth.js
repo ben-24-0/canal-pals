@@ -2,8 +2,7 @@ const express = require("express");
 const bcrypt = require("bcryptjs");
 const User = require("../models/User");
 const AuthLog = require("../models/AuthLog");
-const { issueApiToken } = require("../middleware/apiAuth");
-const { requireApiAuth } = require("../middleware/apiAuth");
+const { issueApiToken, requireApiAuth } = require("../middleware/apiAuth");
 
 const router = express.Router();
 const LEGACY_DISABLED_EMAILS = new Set(["admin@canal.io", "user@canal.io"]);

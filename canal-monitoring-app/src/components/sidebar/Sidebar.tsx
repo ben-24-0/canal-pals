@@ -7,6 +7,7 @@ import {
   Home,
   Map,
   PlusSquare,
+  Settings,
   ShieldCheck,
   LogOut,
   User,
@@ -19,6 +20,7 @@ import { useEffect, useState } from "react";
 const navItems = [
   { href: "/app", icon: Home, label: "Canal Modules" },
   { href: "/app/map", icon: Map, label: "Map View" },
+  { href: "/app/account-settings", icon: Settings, label: "Account Settings" },
 ];
 
 const adminItems = [
