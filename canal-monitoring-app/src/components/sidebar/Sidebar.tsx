@@ -41,9 +41,12 @@ export default function Sidebar() {
   const role = session?.user?.role;
   const isAdmin = role === "admin" || role === "superadmin";
   const isSuperAdmin = role === "superadmin";
-  const adminNavItems = isSuperAdmin
-    ? [...adminItems, ...superAdminItems]
+  const adminOnlyItemsForRole = isSuperAdmin
+    ? adminItems.filter(({ href }) => href !== "/app/admin/users")
     : adminItems;
+  const adminNavItems = isSuperAdmin
+    ? [...adminOnlyItemsForRole, ...superAdminItems]
+    : adminOnlyItemsForRole;
   const mobileItems = isAdmin ? [...navItems, ...adminNavItems] : navItems;
 
   useEffect(() => {

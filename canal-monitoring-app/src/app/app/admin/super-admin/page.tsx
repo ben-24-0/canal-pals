@@ -158,6 +158,54 @@ export default function SuperAdminPage() {
     [users, selectedUserId],
   );
 
+  const quickSections = useMemo(
+    () => [
+      {
+        id: "role-management",
+        label: "User Role Management",
+        description: "Activate accounts, promote users, or revoke access.",
+        stat: `${users.length} total users`,
+        icon: Users,
+      },
+      {
+        id: "access-overrides",
+        label: "User Access Overrides",
+        description: "Fine-tune manager, group, and device visibility.",
+        stat: `${users.filter((user) => user.role === "user").length} user accounts`,
+        icon: ShieldCheck,
+      },
+      {
+        id: "direct-canal-assignment",
+        label: "Direct Canal Assignment",
+        description: "Assign canal visibility directly to admins.",
+        stat: `${admins.length} admins`,
+        icon: Link2,
+      },
+      {
+        id: "group-management",
+        label: "Canal Group Management",
+        description: "Create groups and map canals plus admin members.",
+        stat: `${groups.length} groups`,
+        icon: Users,
+      },
+      {
+        id: "login-audit",
+        label: "Login Audit",
+        description: "Review sign-ins for admins and users.",
+        stat: `${loginLogs.length} recent logs`,
+        icon: RefreshCw,
+      },
+      {
+        id: "device-registry",
+        label: "Device Registry",
+        description: "Register, assign, decommission, or remove devices.",
+        stat: `${devices.length} devices`,
+        icon: Cpu,
+      },
+    ],
+    [users, admins.length, groups.length, loginLogs.length, devices.length],
+  );
+
   const authFetch = useCallback(
     async (path: string, init?: RequestInit) => {
       if (!apiToken) {
@@ -671,7 +719,51 @@ export default function SuperAdminPage() {
         </Card>
       </div>
 
-      <Card>
+      <Card className="border-primary/20 bg-gradient-to-b from-background to-muted/20">
+        <CardHeader>
+          <CardTitle className="text-base">Quick Menu</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <p className="text-sm text-muted-foreground">
+            Jump to the exact admin section you need and follow a simple workflow.
+          </p>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
+            {quickSections.map((section) => {
+              const Icon = section.icon;
+              return (
+                <a
+                  key={section.id}
+                  href={`#${section.id}`}
+                  className="group rounded-lg border bg-background px-3 py-3 transition-colors hover:border-primary/40 hover:bg-primary/5"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold text-foreground truncate">
+                        {section.label}
+                      </p>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        {section.description}
+                      </p>
+                    </div>
+                    <Icon className="w-4 h-4 shrink-0 text-muted-foreground group-hover:text-primary" />
+                  </div>
+                  <p className="mt-3 text-xs font-medium text-primary/90">
+                    {section.stat}
+                  </p>
+                </a>
+              );
+            })}
+          </div>
+
+          <div className="rounded-lg border bg-background px-3 py-2.5 text-xs text-muted-foreground">
+            Recommended flow: 1. Roles, 2. User access, 3. Admin canal assignment,
+            4. Group setup, 5. Device registry, 6. Login audit.
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card id="role-management" className="scroll-mt-24">
         <CardHeader>
           <CardTitle className="text-base flex items-center gap-2">
             <Users className="w-4 h-4" /> User Role Management
@@ -759,7 +851,7 @@ export default function SuperAdminPage() {
         </CardContent>
       </Card>
 
-      <Card>
+      <Card id="access-overrides" className="scroll-mt-24">
         <CardHeader>
           <CardTitle className="text-base">User Access Overrides</CardTitle>
         </CardHeader>
@@ -880,7 +972,7 @@ export default function SuperAdminPage() {
         </CardContent>
       </Card>
 
-      <Card>
+      <Card id="direct-canal-assignment" className="scroll-mt-24">
         <CardHeader>
           <CardTitle className="text-base flex items-center gap-2">
             <Link2 className="w-4 h-4" /> Direct Canal Assignment (Per Admin)
@@ -952,7 +1044,7 @@ export default function SuperAdminPage() {
         </CardContent>
       </Card>
 
-      <Card>
+      <Card id="group-management" className="scroll-mt-24">
         <CardHeader>
           <CardTitle className="text-base">Canal Group Management</CardTitle>
         </CardHeader>
@@ -1122,7 +1214,7 @@ export default function SuperAdminPage() {
         </CardContent>
       </Card>
 
-      <Card>
+      <Card id="login-audit" className="scroll-mt-24">
         <CardHeader>
           <CardTitle className="text-base">Login Audit (Admin & User)</CardTitle>
         </CardHeader>
@@ -1175,7 +1267,7 @@ export default function SuperAdminPage() {
         </CardContent>
       </Card>
 
-      <Card>
+      <Card id="device-registry" className="scroll-mt-24">
         <CardHeader>
           <CardTitle className="text-base flex items-center gap-2">
             <Cpu className="w-4 h-4" /> Device Registry & Decommissioning
