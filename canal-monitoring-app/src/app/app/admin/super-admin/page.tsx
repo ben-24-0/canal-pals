@@ -9,6 +9,7 @@ import {
   RefreshCw,
   ShieldCheck,
   Trash2,
+  User,
   Users,
 } from "lucide-react";
 
@@ -79,7 +80,6 @@ interface LoginLogItem {
   role: "user" | "admin";
   email: string;
   loginAt: string;
-  ipAddress: string;
   userAgent: string;
   userName: string;
   managedByAdminId: string | null;
@@ -90,13 +90,21 @@ interface LoginLogItem {
   } | null;
 }
 
+interface AccountProfile {
+  id: string;
+  name: string;
+  email: string;
+  role: Role;
+}
+
 type SectionId =
   | "role-management"
   | "access-overrides"
   | "direct-canal-assignment"
   | "group-management"
   | "login-audit"
-  | "device-registry";
+  | "device-registry"
+  | "account-settings";
 
 function uniqueSorted(values: Iterable<string>): string[] {
   return [...new Set([...values].filter(Boolean))].sort((a, b) =>
@@ -121,12 +129,14 @@ export default function SuperAdminPage() {
   const [devicesLoading, setDevicesLoading] = useState(false);
   const [canalsLoading, setCanalsLoading] = useState(false);
   const [logsLoading, setLogsLoading] = useState(false);
+  const [accountLoading, setAccountLoading] = useState(false);
 
   const [hasLoadedUsers, setHasLoadedUsers] = useState(false);
   const [hasLoadedGroups, setHasLoadedGroups] = useState(false);
   const [hasLoadedDevices, setHasLoadedDevices] = useState(false);
   const [hasLoadedCanals, setHasLoadedCanals] = useState(false);
   const [hasLoadedLogs, setHasLoadedLogs] = useState(false);
+  const [hasLoadedAccount, setHasLoadedAccount] = useState(false);
 
   const [users, setUsers] = useState<ManagedUser[]>([]);
   const [groups, setGroups] = useState<CanalGroupItem[]>([]);
@@ -163,6 +173,15 @@ export default function SuperAdminPage() {
   const [deviceAssignDrafts, setDeviceAssignDrafts] = useState<
     Record<string, string>
   >({});
+
+  const [accountProfile, setAccountProfile] = useState<AccountProfile | null>(
+    null,
+  );
+  const [accountName, setAccountName] = useState("");
+  const [accountEmail, setAccountEmail] = useState("");
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
 
   const admins = useMemo(
     () => users.filter((user) => user.role === "admin"),
@@ -225,6 +244,15 @@ export default function SuperAdminPage() {
         stat: hasLoadedDevices ? `${devices.length} devices` : "Tap to load",
         icon: Cpu,
       },
+      {
+        id: "account-settings" as SectionId,
+        label: "Account Settings",
+        description: "Update your profile details and password.",
+        stat: hasLoadedAccount
+          ? accountProfile?.email || "Profile loaded"
+          : "Tap to load",
+        icon: User,
+      },
     ],
     [
       users,
@@ -232,10 +260,12 @@ export default function SuperAdminPage() {
       groups.length,
       loginLogs.length,
       devices.length,
+      accountProfile?.email,
       hasLoadedUsers,
       hasLoadedGroups,
       hasLoadedLogs,
       hasLoadedDevices,
+      hasLoadedAccount,
     ],
   );
 
@@ -387,6 +417,29 @@ export default function SuperAdminPage() {
     [authFetch, hasLoadedLogs],
   );
 
+  const loadAccountProfile = useCallback(
+    async (force = false) => {
+      if (!force && hasLoadedAccount) return;
+      setAccountLoading(true);
+
+      try {
+        const payload = await authFetch("/api/auth/account");
+        const user = (payload.user || null) as AccountProfile | null;
+        if (!user) {
+          throw new Error("Failed to load account profile.");
+        }
+
+        setAccountProfile(user);
+        setAccountName(user.name || "");
+        setAccountEmail(user.email || "");
+        setHasLoadedAccount(true);
+      } finally {
+        setAccountLoading(false);
+      }
+    },
+    [authFetch, hasLoadedAccount],
+  );
+
   const ensureSectionData = useCallback(
     async (section: SectionId, force = false) => {
       switch (section) {
@@ -408,9 +461,19 @@ export default function SuperAdminPage() {
         case "device-registry":
           await Promise.all([loadDevices(force), loadCanals(force)]);
           return;
+        case "account-settings":
+          await loadAccountProfile(force);
+          return;
       }
     },
-    [loadCanals, loadDevices, loadGroups, loadLoginLogs, loadUsers],
+    [
+      loadCanals,
+      loadDevices,
+      loadGroups,
+      loadLoginLogs,
+      loadUsers,
+      loadAccountProfile,
+    ],
   );
 
   useEffect(() => {
@@ -472,6 +535,79 @@ export default function SuperAdminPage() {
     await withBusy(async () => {
       await ensureSectionData(activeSection, true);
       setMessage("Section refreshed.");
+    });
+  };
+
+  const saveAccountProfile = async () => {
+    const nextName = accountName.trim();
+    const nextEmail = accountEmail.trim().toLowerCase();
+
+    if (nextName.length < 2 || nextName.length > 100) {
+      setError("Name must be between 2 and 100 characters.");
+      return;
+    }
+
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(nextEmail)) {
+      setError("Please enter a valid email address.");
+      return;
+    }
+
+    await withBusy(async () => {
+      const payload = await authFetch("/api/auth/account", {
+        method: "PATCH",
+        body: JSON.stringify({
+          name: nextName,
+          email: nextEmail,
+        }),
+      });
+
+      const updated = (payload.user || null) as AccountProfile | null;
+      if (updated) {
+        setAccountProfile(updated);
+        setAccountName(updated.name || "");
+        setAccountEmail(updated.email || "");
+      }
+
+      setHasLoadedAccount(true);
+      setMessage("Account profile updated.");
+    });
+  };
+
+  const changeAccountPassword = async () => {
+    if (!currentPassword || !newPassword || !confirmPassword) {
+      setError("Current, new, and confirm password are required.");
+      return;
+    }
+
+    if (newPassword.length < 6) {
+      setError("New password must be at least 6 characters.");
+      return;
+    }
+
+    if (newPassword !== confirmPassword) {
+      setError("New password and confirm password must match.");
+      return;
+    }
+
+    if (newPassword === currentPassword) {
+      setError("New password must be different from current password.");
+      return;
+    }
+
+    await withBusy(async () => {
+      await authFetch("/api/auth/account/change-password", {
+        method: "POST",
+        body: JSON.stringify({
+          currentPassword,
+          newPassword,
+          confirmPassword,
+        }),
+      });
+
+      setCurrentPassword("");
+      setNewPassword("");
+      setConfirmPassword("");
+      setMessage("Password updated successfully.");
     });
   };
 
@@ -782,6 +918,8 @@ export default function SuperAdminPage() {
       ? logsLoading
       : activeSection === "device-registry"
       ? deviceRegistryLoading
+      : activeSection === "account-settings"
+      ? accountLoading
       : false;
 
   if (status === "loading") {
@@ -885,9 +1023,6 @@ export default function SuperAdminPage() {
           <CardTitle className="text-base">Quick Menu</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          <p className="text-sm text-muted-foreground">
-            Click one option to open only that panel below. Initially nothing is open.
-          </p>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
             {quickSections.map((section) => {
@@ -933,7 +1068,7 @@ export default function SuperAdminPage() {
       {!activeSection && (
         <Card>
           <CardContent className="py-10 text-center text-sm text-muted-foreground">
-            Select a Quick Menu option to open that panel.
+            Select an option from Quick Menu to open a panel.
           </CardContent>
         </Card>
       )}
@@ -1448,7 +1583,6 @@ export default function SuperAdminPage() {
                       <th className="text-left px-3 py-2">Role</th>
                       <th className="text-left px-3 py-2">User</th>
                       <th className="text-left px-3 py-2">Manager</th>
-                      <th className="text-left px-3 py-2">IP</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1469,14 +1603,102 @@ export default function SuperAdminPage() {
                         <td className="px-3 py-2 text-xs text-muted-foreground">
                           {log.managedByAdmin?.name || "-"}
                         </td>
-                        <td className="px-3 py-2 font-mono text-xs">
-                          {log.ipAddress || "-"}
-                        </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {activeSection === "account-settings" && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base flex items-center gap-2">
+              <User className="w-4 h-4" /> Account Settings
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            {accountLoading && !hasLoadedAccount ? (
+              <p className="text-sm text-muted-foreground">Loading account details...</p>
+            ) : (
+              <>
+                <div className="rounded-lg border p-4 space-y-3">
+                  <p className="text-sm font-medium">Profile Details</p>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div className="space-y-1">
+                      <Label htmlFor="accountName">Name</Label>
+                      <Input
+                        id="accountName"
+                        value={accountName}
+                        onChange={(e) => setAccountName(e.target.value)}
+                        placeholder="Your full name"
+                        disabled={busy}
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label htmlFor="accountEmail">Email</Label>
+                      <Input
+                        id="accountEmail"
+                        type="email"
+                        value={accountEmail}
+                        onChange={(e) => setAccountEmail(e.target.value)}
+                        placeholder="you@example.com"
+                        disabled={busy}
+                      />
+                    </div>
+                  </div>
+                  <div className="text-xs text-muted-foreground">
+                    Role: {accountProfile?.role || "superadmin"}
+                  </div>
+                  <Button onClick={saveAccountProfile} disabled={busy}>
+                    {busy ? <Loader2 className="w-4 h-4 mr-1.5 animate-spin" /> : null}
+                    Save Profile
+                  </Button>
+                </div>
+
+                <div className="rounded-lg border p-4 space-y-3">
+                  <p className="text-sm font-medium">Change Password</p>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                    <div className="space-y-1">
+                      <Label htmlFor="currentPassword">Current password</Label>
+                      <Input
+                        id="currentPassword"
+                        type="password"
+                        value={currentPassword}
+                        onChange={(e) => setCurrentPassword(e.target.value)}
+                        disabled={busy}
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label htmlFor="newPassword">New password</Label>
+                      <Input
+                        id="newPassword"
+                        type="password"
+                        value={newPassword}
+                        onChange={(e) => setNewPassword(e.target.value)}
+                        disabled={busy}
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label htmlFor="confirmPassword">Confirm new password</Label>
+                      <Input
+                        id="confirmPassword"
+                        type="password"
+                        value={confirmPassword}
+                        onChange={(e) => setConfirmPassword(e.target.value)}
+                        disabled={busy}
+                      />
+                    </div>
+                  </div>
+                  <Button onClick={changeAccountPassword} disabled={busy}>
+                    {busy ? <Loader2 className="w-4 h-4 mr-1.5 animate-spin" /> : null}
+                    Update Password
+                  </Button>
+                </div>
+              </>
             )}
           </CardContent>
         </Card>

@@ -260,7 +260,6 @@ router.get("/login-logs", async (req, res) => {
           role: log.role,
           email: log.email,
           loginAt: log.loginAt,
-          ipAddress: log.ipAddress || "",
           userAgent: log.userAgent || "",
           managedByAdminId: log.managedByAdminId
             ? String(log.managedByAdminId)

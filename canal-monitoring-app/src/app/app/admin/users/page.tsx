@@ -38,7 +38,6 @@ interface LoginLogRow {
   role: "user" | "admin";
   email: string;
   loginAt: string;
-  ipAddress: string;
   userAgent: string;
 }
 
@@ -325,7 +324,6 @@ export default function AdminUsersPage() {
                     <th className="text-left px-3 py-2">Time</th>
                     <th className="text-left px-3 py-2">User</th>
                     <th className="text-left px-3 py-2">Email</th>
-                    <th className="text-left px-3 py-2">IP</th>
                     <th className="text-left px-3 py-2">Client</th>
                   </tr>
                 </thead>
@@ -337,7 +335,6 @@ export default function AdminUsersPage() {
                       </td>
                       <td className="px-3 py-2">{log.userName}</td>
                       <td className="px-3 py-2 font-mono text-xs">{log.email}</td>
-                      <td className="px-3 py-2 font-mono text-xs">{log.ipAddress || "-"}</td>
                       <td className="px-3 py-2 text-xs text-muted-foreground max-w-120 break-all">
                         {log.userAgent || "-"}
                       </td>
