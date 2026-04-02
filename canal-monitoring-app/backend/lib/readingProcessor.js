@@ -1,4 +1,5 @@
 const Canal = require("../models/Canal");
+const DeviceRegistry = require("../models/DeviceRegistry");
 const dataBuffer = require("./dataBuffer");
 const { calculateFlowRate } = require("./mannings");
 
@@ -24,6 +25,29 @@ function toDate(value) {
   return d;
 }
 
+function normalizeDeviceId(value) {
+  return String(value || "")
+    .trim()
+    .toUpperCase();
+}
+
+async function ensureDeviceAllowed(rawDeviceId) {
+  const deviceId = normalizeDeviceId(rawDeviceId);
+  if (!deviceId) {
+    return { ok: false, error: "Missing deviceId" };
+  }
+
+  const device = await DeviceRegistry.findOne({ deviceId }).lean();
+  if (device?.status === "decommissioned") {
+    return {
+      ok: false,
+      error: `Device ${deviceId} is decommissioned and cannot be used`,
+    };
+  }
+
+  return { ok: true, deviceId };
+}
+
 function normalizeStatus(inputStatus, flowRate, canal) {
   if (inputStatus && ALLOWED_STATUSES.has(String(inputStatus))) {
     return String(inputStatus);
@@ -44,6 +68,13 @@ async function resolveCanal(canalId, deviceId) {
     return { ok: false, error: "Missing canalId or deviceId" };
   }
 
+  const deviceCheck = await ensureDeviceAllowed(deviceId);
+  if (!deviceCheck.ok) {
+    return { ok: false, error: deviceCheck.error };
+  }
+
+  const normalizedDeviceId = deviceCheck.deviceId;
+
   const canal = await Canal.findOne({
     canalId: String(canalId).toLowerCase().trim(),
     isActive: true,
@@ -54,16 +85,30 @@ async function resolveCanal(canalId, deviceId) {
   }
 
   if (!canal.esp32DeviceId) {
-    canal.esp32DeviceId = String(deviceId);
+    canal.esp32DeviceId = normalizedDeviceId;
     await canal.save();
-  } else if (canal.esp32DeviceId !== String(deviceId)) {
+  } else if (canal.esp32DeviceId !== normalizedDeviceId) {
     return {
       ok: false,
-      error: `Device mismatch for canal ${canal.canalId}. Expected ${canal.esp32DeviceId}, got ${deviceId}`,
+      error: `Device mismatch for canal ${canal.canalId}. Expected ${canal.esp32DeviceId}, got ${normalizedDeviceId}`,
     };
   }
 
-  return { ok: true, canal };
+  await DeviceRegistry.findOneAndUpdate(
+    { deviceId: normalizedDeviceId },
+    {
+      $set: {
+        status: "active",
+        canalId: canal.canalId,
+        decommissionReason: "",
+        decommissionedAt: null,
+        lastSeenAt: new Date(),
+      },
+    },
+    { upsert: true, setDefaultsOnInsert: true },
+  );
+
+  return { ok: true, canal, deviceId: normalizedDeviceId };
 }
 
 async function processMqttReading(payload, source = "mqtt") {
@@ -78,6 +123,7 @@ async function processMqttReading(payload, source = "mqtt") {
   }
 
   const canal = found.canal;
+  const normalizedDeviceId = found.deviceId;
   const sensorType = canal.sensorType || "radar";
   const mp = canal.manningsParams || {};
 
@@ -86,7 +132,7 @@ async function processMqttReading(payload, source = "mqtt") {
 
   const reading = {
     canalId,
-    esp32DeviceId: deviceId,
+    esp32DeviceId: normalizedDeviceId,
     sensorType,
     timestamp: toDate(payload.timestamp),
     receivedAt: new Date(),
@@ -179,7 +225,7 @@ async function processMqttReading(payload, source = "mqtt") {
   return {
     accepted: true,
     canalId,
-    deviceId,
+    deviceId: normalizedDeviceId,
     status: reading.status,
     flowRate: reading.flowRate,
     speed: reading.speed,
@@ -192,9 +238,15 @@ async function processRegisterMessage(payload) {
     ? String(payload.canalId).toLowerCase().trim()
     : "";
   const deviceId = payload?.deviceId ? String(payload.deviceId).trim() : "";
+  const normalizedDeviceId = normalizeDeviceId(deviceId);
 
-  if (!canalId || !deviceId) {
+  if (!canalId || !normalizedDeviceId) {
     return { accepted: false, reason: "Missing canalId or deviceId" };
+  }
+
+  const deviceCheck = await ensureDeviceAllowed(normalizedDeviceId);
+  if (!deviceCheck.ok) {
+    return { accepted: false, reason: deviceCheck.error };
   }
 
   const canal = await Canal.findOne({ canalId, isActive: true });
@@ -202,19 +254,33 @@ async function processRegisterMessage(payload) {
     return { accepted: false, reason: `Canal not found: ${canalId}` };
   }
 
-  if (canal.esp32DeviceId && canal.esp32DeviceId !== deviceId) {
+  if (canal.esp32DeviceId && canal.esp32DeviceId !== normalizedDeviceId) {
     return {
       accepted: false,
-      reason: `Device mismatch for canal ${canalId}. Expected ${canal.esp32DeviceId}, got ${deviceId}`,
+      reason: `Device mismatch for canal ${canalId}. Expected ${canal.esp32DeviceId}, got ${normalizedDeviceId}`,
     };
   }
 
-  if (canal.esp32DeviceId !== deviceId) {
-    canal.esp32DeviceId = deviceId;
+  if (canal.esp32DeviceId !== normalizedDeviceId) {
+    canal.esp32DeviceId = normalizedDeviceId;
     await canal.save();
   }
 
-  return { accepted: true, canalId, deviceId };
+  await DeviceRegistry.findOneAndUpdate(
+    { deviceId: normalizedDeviceId },
+    {
+      $set: {
+        status: "active",
+        canalId,
+        decommissionReason: "",
+        decommissionedAt: null,
+        lastSeenAt: new Date(),
+      },
+    },
+    { upsert: true, setDefaultsOnInsert: true },
+  );
+
+  return { accepted: true, canalId, deviceId: normalizedDeviceId };
 }
 
 module.exports = {

@@ -7,7 +7,7 @@
  *   node scripts/simulate-esp32.js canoli-canal 5    # custom canal, every 5s
  */
 
-require("dotenv").config();
+require("../lib/loadEnv");
 const axios = require("axios");
 
 // ── Config ──────────────────────────────────────────────────────────

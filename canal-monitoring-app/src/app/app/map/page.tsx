@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Map, {
   Marker,
   Popup,
@@ -66,8 +66,8 @@ const STATUS_CONFIG: Record<
 };
 
 export default function MapPage() {
-  const { data: session } = useSession();
-  const isAdmin = session?.user?.role === "admin";
+  const { data: session, status } = useSession();
+  const canUseSharedCanalView = Boolean(session?.user);
 
   const [canalList, setCanalList] = useState<CanalInfo[]>([]);
   const [selected, setSelected] = useState<CanalPin | null>(null);
@@ -76,7 +76,6 @@ export default function MapPage() {
     new Set(ALL_STATUSES),
   );
   const [showFilters, setShowFilters] = useState(false);
-  const [lastRefreshed, setLastRefreshed] = useState<Date>(new Date());
   const [userMovedMap, setUserMovedMap] = useState(false);
   const [mapView, setMapView] = useState(KERALA_FOCUS);
 
@@ -85,23 +84,38 @@ export default function MapPage() {
 
   // Fetch canal list once on mount (static info)
   useEffect(() => {
-    fetch(`${BACKEND_URL}/api/canals?active=true&limit=200`)
+    if (status === "loading") return;
+
+    const query = new URLSearchParams({
+      active: "true",
+      limit: "200",
+    });
+
+    if (session?.user?.id) {
+      query.set("viewerUserId", session.user.id);
+    }
+
+    fetch(`${BACKEND_URL}/api/canals?${query.toString()}`)
       .then((r) => r.json())
       .then((json) => setCanalList(json.canals ?? []))
       .catch(console.error);
-  }, []);
+  }, [session?.user?.id, status]);
 
-  // Update lastRefreshed whenever SSE delivers new readings
-  useEffect(() => {
-    if (liveReadings.size > 0) setLastRefreshed(new Date());
+  const lastRefreshed = useMemo(() => {
+    let latestTs = 0;
+    for (const reading of liveReadings.values()) {
+      const ts = new Date(reading.timestamp).getTime();
+      if (Number.isFinite(ts) && ts > latestTs) {
+        latestTs = ts;
+      }
+    }
+
+    return latestTs > 0 ? new Date(latestTs) : new Date();
   }, [liveReadings]);
 
-  // Focus map on canal cluster; fallback to Kerala
-  useEffect(() => {
-    if (userMovedMap) return;
+  const autoMapView = useMemo(() => {
     if (canalList.length === 0) {
-      setMapView(KERALA_FOCUS);
-      return;
+      return KERALA_FOCUS;
     }
 
     const coords = canalList
@@ -112,8 +126,7 @@ export default function MapPage() {
       );
 
     if (coords.length === 0) {
-      setMapView(KERALA_FOCUS);
-      return;
+      return KERALA_FOCUS;
     }
 
     const lons = coords.map((c) => c[0]);
@@ -130,12 +143,14 @@ export default function MapPage() {
     else if (span < 0.6) zoom = 9.3;
     else if (span < 1.2) zoom = 8.3;
 
-    setMapView({
+    return {
       longitude: (minLon + maxLon) / 2,
       latitude: (minLat + maxLat) / 2,
       zoom,
-    });
-  }, [canalList, userMovedMap]);
+    };
+  }, [canalList]);
+
+  const activeMapView = userMovedMap ? mapView : autoMapView;
 
   // Derive pins by merging static canal list with live SSE readings
   const pins: CanalPin[] = canalList.map((c) => ({
@@ -166,9 +181,9 @@ export default function MapPage() {
   return (
     <div className="relative w-full h-[calc(100vh-4rem)] rounded-lg overflow-hidden">
       <Map
-        longitude={mapView.longitude}
-        latitude={mapView.latitude}
-        zoom={mapView.zoom}
+        longitude={activeMapView.longitude}
+        latitude={activeMapView.latitude}
+        zoom={activeMapView.zoom}
         style={{ width: "100%", height: "100%" }}
         mapStyle={osmStyle}
         onMove={(evt) => {
@@ -299,7 +314,7 @@ export default function MapPage() {
 
               <Link
                 href={
-                  isAdmin
+                  canUseSharedCanalView
                     ? `/app/admin/canal/${selected.canal.canalId}`
                     : `/app/canal/${selected.canal.canalId}`
                 }

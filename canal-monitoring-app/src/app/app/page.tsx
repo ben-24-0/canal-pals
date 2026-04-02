@@ -25,8 +25,8 @@ const BACKEND_URL =
   process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:3001";
 
 export default function CanalModulesHub() {
-  const { data: session } = useSession();
-  const isAdmin = session?.user?.role === "admin";
+  const { data: session, status } = useSession();
+  const canUseSharedCanalView = Boolean(session?.user);
 
   const [canals, setCanals] = useState<CanalInfo[]>([]);
   const [loading, setLoading] = useState(true);
@@ -52,12 +52,23 @@ export default function CanalModulesHub() {
     useCanalGroups();
 
   useEffect(() => {
-    fetch(`${BACKEND_URL}/api/canals?active=true&limit=200`)
+    if (status === "loading") return;
+
+    const query = new URLSearchParams({
+      active: "true",
+      limit: "200",
+    });
+
+    if (session?.user?.id) {
+      query.set("viewerUserId", session.user.id);
+    }
+
+    fetch(`${BACKEND_URL}/api/canals?${query.toString()}`)
       .then((r) => r.json())
       .then((json) => setCanals(json.canals ?? []))
       .catch(console.error)
       .finally(() => setLoading(false));
-  }, []);
+  }, [session?.user?.id, status]);
 
   const filtered = canals.filter((c) => {
     if (c.type !== "irrigation") return false;
@@ -268,7 +279,11 @@ export default function CanalModulesHub() {
             {pinnedCanals.map((canal) => (
               <Link
                 key={`bookmark-chip-${canal.canalId}`}
-                href={isAdmin ? `/app/admin/canal/${canal.canalId}` : `/app/canal/${canal.canalId}`}
+                href={
+                  canUseSharedCanalView
+                    ? `/app/admin/canal/${canal.canalId}`
+                    : `/app/canal/${canal.canalId}`
+                }
                 className="rounded-full border px-2.5 py-1 text-xs text-foreground hover:bg-muted"
               >
                 {canal.name}
@@ -472,7 +487,7 @@ export default function CanalModulesHub() {
                       reading={readings.get(canal.canalId) ?? null}
                       isFavourite={isPinned(canal.canalId)}
                       onToggleFavourite={toggle}
-                      isAdmin={isAdmin}
+                      isAdmin={canUseSharedCanalView}
                     />
                   </div>
                 ))}
@@ -501,7 +516,7 @@ export default function CanalModulesHub() {
                   reading={readings.get(canal.canalId) ?? null}
                   isFavourite={isPinned(canal.canalId)}
                   onToggleFavourite={toggle}
-                  isAdmin={isAdmin}
+                  isAdmin={canUseSharedCanalView}
                 />
               </div>
             ))}

@@ -13,6 +13,9 @@ import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import type { CanalInfo, CanalReading } from "@/types/canal";
 
+const DEFAULT_SEND_INTERVAL_MS = 30 * 60 * 1000;
+const OFFLINE_EXTRA_BUFFER_MS = 2 * 60 * 1000;
+
 const STATUS_CONFIG: Record<
   string,
   {
@@ -56,7 +59,16 @@ export default function CanalModuleCard({
     : Number.isFinite(readingTs)
       ? readingTs
       : 0;
-  const deviceOnline = Number.isFinite(ts) && ts > 0;
+  const sendIntervalMs =
+    Number.isFinite(Number(canal.effectiveSendIntervalMs)) &&
+    Number(canal.effectiveSendIntervalMs) > 0
+      ? Math.round(Number(canal.effectiveSendIntervalMs))
+      : DEFAULT_SEND_INTERVAL_MS;
+  const onlineThresholdMs = sendIntervalMs + OFFLINE_EXTRA_BUFFER_MS;
+  const deviceOnline =
+    Number.isFinite(ts) && ts > 0
+      ? Date.now() - ts <= onlineThresholdMs
+      : false;
   const measuredAt =
     ts > 0 ? new Date(ts).toLocaleString() : "Waiting for reading";
   const href = isAdmin

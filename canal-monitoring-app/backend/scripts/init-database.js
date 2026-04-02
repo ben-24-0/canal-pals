@@ -1,8 +1,10 @@
-require("dotenv").config();
+require("../lib/loadEnv");
 const mongoose = require("mongoose");
 const bcrypt = require("bcryptjs");
 const Canal = require("../models/Canal");
 const CanalReading = require("../models/CanalReading");
+const CanalGroup = require("../models/CanalGroup");
+const DeviceRegistry = require("../models/DeviceRegistry");
 const User = require("../models/User");
 
 // Import existing canal data from frontend
@@ -86,30 +88,33 @@ async function initializeDatabase() {
     console.log("🧹 Clearing existing data...");
     await Canal.deleteMany({});
     await CanalReading.deleteMany({});
+    await CanalGroup.deleteMany({});
+    await DeviceRegistry.deleteMany({});
     await User.deleteMany({});
 
     // ── Seed Users ─────────────────────────────────────────────────
     console.log("👤 Seeding users...");
     const salt = await bcrypt.genSalt(10);
+    const bootstrapSuperAdminEmail =
+      process.env.BOOTSTRAP_SUPERADMIN_EMAIL || "bootstrap-superadmin@canal.io";
+    const bootstrapSuperAdminPassword =
+      process.env.BOOTSTRAP_SUPERADMIN_PASSWORD || "TempSuperAdmin@123";
+
     const users = [
       {
-        email: "admin@canal.io",
-        passwordHash: await bcrypt.hash("admin123", salt),
-        name: "Admin User",
-        role: "admin",
-        favouriteCanals: ["peechi-canal"],
-      },
-      {
-        email: "user@canal.io",
-        passwordHash: await bcrypt.hash("user123", salt),
-        name: "Regular User",
-        role: "user",
+        email: bootstrapSuperAdminEmail,
+        passwordHash: await bcrypt.hash(bootstrapSuperAdminPassword, salt),
+        name: "Temporary Super Admin",
+        role: "superadmin",
+        isApproved: true,
+        approvedAt: new Date(),
+        assignedCanals: [],
         favouriteCanals: [],
       },
     ];
     const createdUsers = await User.insertMany(users);
     console.log(
-      `✅ Created ${createdUsers.length} users (admin@canal.io / admin123, user@canal.io / user123)`,
+      `✅ Created ${createdUsers.length} bootstrap user (${bootstrapSuperAdminEmail} / ${bootstrapSuperAdminPassword})`,
     );
 
     console.log("📊 Initializing canal data...");
@@ -144,7 +149,30 @@ async function initializeDatabase() {
     }
 
     const createdCanals = await Canal.insertMany(canals);
+
+    await Promise.all(
+      createdCanals.map((canal) => {
+        const deviceId = `ESP32_${canal.canalId.replace(/-/g, "_").toUpperCase()}_001`;
+        return Canal.updateOne(
+          { _id: canal._id },
+          { $set: { esp32DeviceId: deviceId } },
+        );
+      }),
+    );
+
     console.log(`✅ Created ${createdCanals.length} canals`);
+
+    const registryRows = createdCanals.map((canal) => ({
+      deviceId: `ESP32_${canal.canalId.replace(/-/g, "_").toUpperCase()}_001`,
+      status: "active",
+      canalId: canal.canalId,
+      decommissionReason: "",
+      decommissionedAt: null,
+      lastSeenAt: new Date(),
+    }));
+
+    await DeviceRegistry.insertMany(registryRows);
+    console.log(`✅ Registered ${registryRows.length} device IDs`);
 
     // Create initial readings with some sample historical data
     console.log("📈 Creating sample readings...");

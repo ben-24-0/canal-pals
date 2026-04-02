@@ -12,6 +12,7 @@
     "simulate:canoli": "node scripts/simulate-esp32.js canoli-canal 3",
     "simulate:puthussery": "node scripts/simulate-esp32.js puthussery-kalady-canal 3",
     "init-db": "node scripts/init-database.js",
+    "remove-demo-users": "node scripts/remove-demo-users.js",
     "setup": "npm install && npm run init-db"
   },
   "keywords": [

@@ -1,12 +1,17 @@
 import { auth } from "@/auth";
 import { NextResponse } from "next/server";
-import type { NextRequest } from "next/server";
 
 export default auth((req) => {
   const { nextUrl } = req;
   const isLoggedIn = !!req.auth;
+  const userRole = (req.auth?.user as { role?: string } | undefined)?.role;
 
   const isAppRoute = nextUrl.pathname.startsWith("/app");
+  const isAdminRoute = nextUrl.pathname.startsWith("/app/admin");
+  const isSharedCanalRoute = nextUrl.pathname.startsWith("/app/admin/canal/");
+  const isSuperAdminRoute = nextUrl.pathname.startsWith(
+    "/app/admin/super-admin",
+  );
   const isLoginRoute = nextUrl.pathname === "/login";
 
   // Unauthenticated user tries to access protected /app/* → redirect to /login
@@ -16,6 +21,24 @@ export default auth((req) => {
 
   // Already logged-in user visits /login → redirect to /app
   if (isLoginRoute && isLoggedIn) {
+    return NextResponse.redirect(new URL("/app", nextUrl));
+  }
+
+  // Super-admin route requires superadmin role.
+  if (isSuperAdminRoute && userRole !== "superadmin") {
+    return NextResponse.redirect(new URL("/app", nextUrl));
+  }
+
+  // Allow standard users to use the shared read-only canal dashboard route.
+  if (
+    isSharedCanalRoute &&
+    ["user", "admin", "superadmin"].includes(String(userRole || ""))
+  ) {
+    return NextResponse.next();
+  }
+
+  // Non-admin/non-superadmin users cannot access admin-only routes.
+  if (isAdminRoute && userRole !== "admin" && userRole !== "superadmin") {
     return NextResponse.redirect(new URL("/app", nextUrl));
   }
 

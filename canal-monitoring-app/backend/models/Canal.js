@@ -52,7 +52,7 @@ const canalSchema = new mongoose.Schema(
     sensorType: {
       type: String,
       enum: ["radar", "ultrasonic"],
-      default: "radar",
+      default: "ultrasonic",
     },
     manningsParams: {
       shape: { type: String, enum: ["trapezoid", "rectangle", "circle"] },

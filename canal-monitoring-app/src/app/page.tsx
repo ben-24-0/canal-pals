@@ -26,7 +26,7 @@ const governanceCards = [
   },
   {
     title: "Dual-Sensor Intelligence",
-    text: "Ultrasonic depth with Manning-based expected flow is cross-checked against Doppler-measured actual flow for blockage insight.",
+    text: "Ultrasonic depth estimates are cross-checked against Doppler-measured actual flow for blockage insight.",
     icon: Building2,
   },
   {

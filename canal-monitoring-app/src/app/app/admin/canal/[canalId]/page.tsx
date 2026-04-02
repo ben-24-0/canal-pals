@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback, useMemo } from "react";
 import { useParams, useRouter } from "next/navigation";
+import { useSession } from "next-auth/react";
 import {
   Gauge,
   Settings2,
@@ -36,6 +37,7 @@ import { Label } from "@/components/ui/label";
 import type { CanalInfo } from "@/types/canal";
 import { useCanalSSE } from "@/hooks/useCanalSSE";
 import dynamic from "next/dynamic";
+import tzLookup from "tz-lookup";
 
 const MiniMap = dynamic(() => import("@/components/map/MiniMap"), {
   ssr: false,
@@ -62,7 +64,7 @@ interface TimelinePoint {
 
 const DEFAULT_ROWS_PER_PAGE = 25;
 const ROWS_PER_PAGE_OPTIONS = [10, 25, 50, 100] as const;
-const DEFAULT_SEND_INTERVAL_MS = 10000;
+const DEFAULT_SEND_INTERVAL_MS = 30 * 60 * 1000;
 const OFFLINE_EXTRA_BUFFER_MS = 2 * 60 * 1000;
 const FORCE_READ_COOLDOWN_MS = 10 * 1000;
 const SEND_INTERVAL_OPTIONS_MS = (() => {
@@ -115,22 +117,57 @@ function resolveReadingTime(
   return null;
 }
 
+function resolveTimeZoneFromCoordinates(
+  latitude: number,
+  longitude: number,
+): string {
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+  }
+
+  try {
+    return tzLookup(latitude, longitude);
+  } catch {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+  }
+}
+
+function csvEscape(value: string): string {
+  if (/[,"\n\r]/.test(value)) {
+    return `"${value.replace(/"/g, '""')}"`;
+  }
+  return value;
+}
+
+type GraphRangeMode = "3days" | "week" | "month" | "custom";
+
+function toDateInputValue(date: Date): string {
+  return date.toISOString().slice(0, 10);
+}
+
+function getDateDaysAgo(days: number): string {
+  return toDateInputValue(new Date(Date.now() - days * 24 * 60 * 60 * 1000));
+}
+
 export default function AdminCanalDashboard() {
   const params = useParams();
   const router = useRouter();
+  const { data: session } = useSession();
+  const viewerRole = session?.user?.role;
+  const isAdminViewer =
+    viewerRole === "admin" || viewerRole === "superadmin";
+  const canEditCanal = isAdminViewer;
+  const apiToken = session?.user?.apiToken || "";
   const canalId = params.canalId as string;
 
   const [canal, setCanal] = useState<CanalInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyError, setHistoryError] = useState<string | null>(null);
-  const [fromDate, setFromDate] = useState(() => {
-    const d = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
-    return d.toISOString().slice(0, 10);
-  });
-  const [toDate, setToDate] = useState(() =>
-    new Date().toISOString().slice(0, 10),
-  );
+  const [graphRangeMode, setGraphRangeMode] =
+    useState<GraphRangeMode>("3days");
+  const [fromDate, setFromDate] = useState(() => getDateDaysAgo(3));
+  const [toDate, setToDate] = useState(() => toDateInputValue(new Date()));
   const [rowsPerPage, setRowsPerPage] = useState<number>(DEFAULT_ROWS_PER_PAGE);
   const [currentPage, setCurrentPage] = useState(1);
   const [sendingDeviceSettings, setSendingDeviceSettings] = useState(false);
@@ -154,7 +191,13 @@ export default function AdminCanalDashboard() {
 
   const fetchCanal = useCallback(async () => {
     try {
-      const res = await fetch(`${BACKEND_URL}/api/canals/${canalId}`);
+      const query = new URLSearchParams();
+      if (session?.user?.id) {
+        query.set("viewerUserId", session.user.id);
+      }
+
+      const suffix = query.toString() ? `?${query.toString()}` : "";
+      const res = await fetch(`${BACKEND_URL}/api/canals/${canalId}${suffix}`);
       if (res.ok) {
         const j = await res.json();
         setCanal(j.canal ?? j);
@@ -164,7 +207,7 @@ export default function AdminCanalDashboard() {
     } finally {
       setLoading(false);
     }
-  }, [canalId]);
+  }, [canalId, session?.user?.id]);
 
   const fetchReadings = useCallback(
     async (startDate?: string, endDate?: string) => {
@@ -176,6 +219,10 @@ export default function AdminCanalDashboard() {
           limit: "2000",
           page: "1",
         });
+
+        if (session?.user?.id) {
+          query.set("viewerUserId", session.user.id);
+        }
 
         if (startDate) {
           query.set("startDate", `${startDate}T00:00:00.000Z`);
@@ -244,7 +291,7 @@ export default function AdminCanalDashboard() {
         setHistoryLoading(false);
       }
     },
-    [canalId],
+    [canalId, session?.user?.id],
   );
 
   const fetchDeviceSettings = useCallback(async () => {
@@ -253,11 +300,14 @@ export default function AdminCanalDashboard() {
       if (!res.ok) return;
 
       const body = await res.json().catch(() => null);
+      const effectiveInterval = Number(body?.effectiveSendIntervalMs);
       const remoteInterval = Number(body?.settings?.sendIntervalMs);
       const fallbackInterval = Number(body?.fallbackSendIntervalMs);
 
       const targetInterval =
-        Number.isFinite(remoteInterval) && remoteInterval > 0
+        Number.isFinite(effectiveInterval) && effectiveInterval > 0
+          ? effectiveInterval
+          : Number.isFinite(remoteInterval) && remoteInterval > 0
           ? remoteInterval
           : Number.isFinite(fallbackInterval) && fallbackInterval > 0
             ? fallbackInterval
@@ -280,6 +330,10 @@ export default function AdminCanalDashboard() {
       successMessage = "Settings published.",
     ) => {
       if (!canal) return false;
+      if (!apiToken) {
+        setDeviceSettingsMsg("Session token missing. Please sign in again.");
+        return false;
+      }
       if (Object.keys(payload).length === 0) {
         setDeviceSettingsMsg("Add at least one setting to publish.");
         return false;
@@ -293,7 +347,10 @@ export default function AdminCanalDashboard() {
           `${BACKEND_URL}/api/esp32/settings/${encodeURIComponent(canal.canalId)}`,
           {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${apiToken}`,
+            },
             body: JSON.stringify(payload),
           },
         );
@@ -313,7 +370,7 @@ export default function AdminCanalDashboard() {
         setSendingDeviceSettings(false);
       }
     },
-    [canal],
+    [canal, apiToken],
   );
 
   const commitSendInterval = useCallback(async () => {
@@ -449,8 +506,15 @@ export default function AdminCanalDashboard() {
     setDeleting(true);
     setDeleteError(null);
     try {
+      if (!apiToken) {
+        throw new Error("Session token missing. Please sign in again.");
+      }
+
       const res = await fetch(`${BACKEND_URL}/api/canals/${canalId}`, {
         method: "DELETE",
+        headers: {
+          Authorization: `Bearer ${apiToken}`,
+        },
       });
       if (!res.ok) {
         const j = await res.json().catch(() => ({}));
@@ -538,9 +602,16 @@ export default function AdminCanalDashboard() {
     };
 
     try {
+      if (!apiToken) {
+        throw new Error("Session token missing. Please sign in again.");
+      }
+
       const res = await fetch(`${BACKEND_URL}/api/canals/${canalId}`, {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${apiToken}`,
+        },
         body: JSON.stringify(body),
       });
 
@@ -560,6 +631,19 @@ export default function AdminCanalDashboard() {
       setSaving(false);
     }
   };
+
+  const applyGraphRangeMode = useCallback((mode: Exclude<GraphRangeMode, "custom">) => {
+    const today = new Date();
+    const nextTo = toDateInputValue(today);
+
+    let daysBack = 3;
+    if (mode === "week") daysBack = 7;
+    if (mode === "month") daysBack = 30;
+
+    setGraphRangeMode(mode);
+    setToDate(nextTo);
+    setFromDate(getDateDaysAgo(daysBack));
+  }, []);
 
   const rangeStartTs = fromDate
     ? new Date(`${fromDate}T00:00:00.000Z`).getTime()
@@ -624,27 +708,38 @@ export default function AdminCanalDashboard() {
       return;
     }
 
-    const csvTimestampFormatter = new Intl.DateTimeFormat("en-GB", {
-      timeZone: "Etc/GMT",
-      day: "numeric",
-      month: "numeric",
+    const [canalLon = Number.NaN, canalLat = Number.NaN] =
+      canal?.location.coordinates ?? [];
+    const canalTimeZone = resolveTimeZoneFromCoordinates(canalLat, canalLon);
+
+    const csvDateFormatter = new Intl.DateTimeFormat("en-CA", {
+      timeZone: canalTimeZone,
       year: "numeric",
-      hour: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    });
+    const csvTimeFormatter = new Intl.DateTimeFormat("en-GB", {
+      timeZone: canalTimeZone,
+      hour: "2-digit",
       minute: "2-digit",
       second: "2-digit",
-      hour12: true,
+      hour12: false,
     });
 
     const rows = [
-      ["Timestamp", "Height (m)", "Flow Rate (m3/s)"],
+      ["Date", "Time", "Height (m)", "Flow Rate (m3/s)", "Time Zone"],
       ...filteredTimeline.map((row) => [
-        csvTimestampFormatter.format(new Date(row.timestamp)),
+        csvDateFormatter.format(new Date(row.timestamp)),
+        csvTimeFormatter.format(new Date(row.timestamp)),
         row.height.toFixed(3),
         row.flowRate.toFixed(3),
+        canalTimeZone,
       ]),
     ];
 
-    const csv = rows.map((row) => row.join(",")).join("\n");
+    const csv = rows
+      .map((row) => row.map((cell) => csvEscape(String(cell))).join(","))
+      .join("\n");
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -722,8 +817,15 @@ export default function AdminCanalDashboard() {
           />
         </div>
         <div className="flex items-center gap-2">
-          <Badge variant="outline" className="text-amber-600 border-amber-400">
-            Admin View
+          <Badge
+            variant="outline"
+            className={
+              isAdminViewer
+                ? "text-amber-600 border-amber-400"
+                : "text-blue-600 border-blue-400"
+            }
+          >
+            {isAdminViewer ? "Admin View" : "User View"}
           </Badge>
         </div>
       </div>
@@ -760,16 +862,18 @@ export default function AdminCanalDashboard() {
               </div>
             </div>
 
-            <div>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleForceRead}
-                disabled={sendingDeviceSettings || forceReadBusy}
-              >
-                {forceReadBusy ? "Measuring..." : "Measure"}
-              </Button>
-            </div>
+            {canEditCanal && (
+              <div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleForceRead}
+                  disabled={sendingDeviceSettings || forceReadBusy}
+                >
+                  {forceReadBusy ? "Measuring..." : "Measure"}
+                </Button>
+              </div>
+            )}
 
             {/* Secondary metrics: Velocity & Flow Rate */}
             <div className="grid grid-cols-2 gap-3">
@@ -905,7 +1009,10 @@ export default function AdminCanalDashboard() {
                   id="fromDate"
                   type="date"
                   value={fromDate}
-                  onChange={(e) => setFromDate(e.target.value)}
+                  onChange={(e) => {
+                    setGraphRangeMode("custom");
+                    setFromDate(e.target.value);
+                  }}
                   className="h-9 w-full sm:w-auto"
                 />
               </div>
@@ -920,7 +1027,10 @@ export default function AdminCanalDashboard() {
                   id="toDate"
                   type="date"
                   value={toDate}
-                  onChange={(e) => setToDate(e.target.value)}
+                  onChange={(e) => {
+                    setGraphRangeMode("custom");
+                    setToDate(e.target.value);
+                  }}
                   className="h-9 w-full sm:w-auto"
                 />
               </div>
@@ -1117,13 +1227,14 @@ export default function AdminCanalDashboard() {
       </Card>
 
       {/* Settings */}
-      <Card>
-        <CardHeader className="pb-2">
-          <CardTitle className="text-base flex items-center gap-1.5">
-            <Settings2 className="w-4 h-4" /> Canal Settings
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-5">
+      {canEditCanal && (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base flex items-center gap-1.5">
+              <Settings2 className="w-4 h-4" /> Canal Settings
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-5">
           <div className="flex items-center justify-between rounded-lg border bg-muted/30 p-3">
             <p className="text-sm text-muted-foreground">
               {isEditMode
@@ -1190,57 +1301,59 @@ export default function AdminCanalDashboard() {
             </div>
           </div>
 
-          <div className="rounded-lg border p-3 space-y-3">
-            <div className="flex items-center justify-between gap-3 text-sm">
-              <span className="text-muted-foreground">
-                Device send interval
-              </span>
-              <span className="font-medium">
-                {formatInterval(sendIntervalMs)}
-              </span>
-            </div>
-            <input
-              type="range"
-              className="w-full"
-              min={0}
-              max={SEND_INTERVAL_OPTIONS_MS.length - 1}
-              step={1}
-              value={sliderIndex}
-              onChange={(e) => {
-                const idx = Number(e.target.value);
-                const nextMs =
-                  SEND_INTERVAL_OPTIONS_MS[idx] ?? DEFAULT_SEND_INTERVAL_MS;
-                setSliderIndex(idx);
-                setSendIntervalMs(nextMs);
-              }}
-              onMouseUp={commitSendInterval}
-              onTouchEnd={commitSendInterval}
-              onKeyUp={commitSendInterval}
-            />
-            <div className="flex justify-between text-xs text-muted-foreground">
-              <span>10 s</span>
-              <span>1 min</span>
-              <span>60 min</span>
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={commitSendInterval}
-                disabled={sendingDeviceSettings}
-              >
-                {sendingDeviceSettings ? "Publishing..." : "Apply Interval"}
-              </Button>
-              <span className="text-xs text-muted-foreground">
-                Topic: canal/{canal.esp32DeviceId ?? "<device-id>"}/settings
-                (retained)
-              </span>
-            </div>
-          </div>
-
           {/* Edit form - only show when in edit mode */}
           {isEditMode && (
             <>
+              <div className="rounded-lg border p-3 space-y-3">
+                <div className="flex items-center justify-between gap-3 text-sm">
+                  <span className="text-muted-foreground">
+                    Device send interval
+                  </span>
+                  <span className="font-medium">
+                    {formatInterval(sendIntervalMs)}
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  className="w-full"
+                  min={0}
+                  max={SEND_INTERVAL_OPTIONS_MS.length - 1}
+                  step={1}
+                  value={sliderIndex}
+                  onChange={(e) => {
+                    const idx = Number(e.target.value);
+                    const nextMs =
+                      SEND_INTERVAL_OPTIONS_MS[idx] ?? DEFAULT_SEND_INTERVAL_MS;
+                    setSliderIndex(idx);
+                    setSendIntervalMs(nextMs);
+                  }}
+                  onMouseUp={commitSendInterval}
+                  onTouchEnd={commitSendInterval}
+                  onKeyUp={commitSendInterval}
+                />
+                <div className="flex justify-between text-xs text-muted-foreground">
+                  <span>10 s</span>
+                  <span>30 min</span>
+                  <span>60 min</span>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={commitSendInterval}
+                    disabled={sendingDeviceSettings}
+                  >
+                    {sendingDeviceSettings
+                      ? "Publishing..."
+                      : "Apply Interval"}
+                  </Button>
+                  <span className="text-xs text-muted-foreground">
+                    Topic: canal/{canal.esp32DeviceId ?? "<device-id>"}/settings
+                    (retained)
+                  </span>
+                </div>
+              </div>
+
               {/* Sensor type + active */}
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
@@ -1499,20 +1612,49 @@ export default function AdminCanalDashboard() {
               Settings saved successfully.
             </div>
           )}
-          {deviceSettingsMsg && (
-            <div className="p-3 rounded-lg bg-muted/60 text-sm text-muted-foreground">
-              {deviceSettingsMsg}
-            </div>
-          )}
-        </CardContent>
-      </Card>
+            {deviceSettingsMsg && (
+              <div className="p-3 rounded-lg bg-muted/60 text-sm text-muted-foreground">
+                {deviceSettingsMsg}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {/* Charts */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-base flex items-center gap-2">
-            <BarChart3 className="w-4 h-4 text-primary" /> Trend Analysis
-          </CardTitle>
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <CardTitle className="text-base flex items-center gap-2">
+              <BarChart3 className="w-4 h-4 text-primary" /> Trend Analysis
+            </CardTitle>
+            <div className="flex items-center gap-2 flex-wrap">
+              <Button
+                size="sm"
+                variant={graphRangeMode === "3days" ? "default" : "outline"}
+                onClick={() => applyGraphRangeMode("3days")}
+              >
+                3 Days
+              </Button>
+              <Button
+                size="sm"
+                variant={graphRangeMode === "week" ? "default" : "outline"}
+                onClick={() => applyGraphRangeMode("week")}
+              >
+                Week
+              </Button>
+              <Button
+                size="sm"
+                variant={graphRangeMode === "month" ? "default" : "outline"}
+                onClick={() => applyGraphRangeMode("month")}
+              >
+                Month
+              </Button>
+              {graphRangeMode === "custom" && (
+                <Badge variant="outline">Custom</Badge>
+              )}
+            </div>
+          </div>
         </CardHeader>
         <CardContent>
           {filteredTimeline.length === 0 ? (
@@ -1692,78 +1834,80 @@ export default function AdminCanalDashboard() {
       </Card>
 
       {/* Danger Zone — Delete Canal */}
-      <Card className="border-destructive/40">
-        <CardHeader className="pb-2">
-          <CardTitle className="text-base flex items-center gap-1.5 text-destructive">
-            <AlertTriangle className="w-4 h-4" /> Danger Zone
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <p className="text-sm text-muted-foreground">
-            Deactivating this canal will hide it from the dashboard and stop
-            accepting new data from the IIMS device. This action can be reversed
-            by reactivating it from the database.
-          </p>
+      {canEditCanal && (
+        <Card className="border-destructive/40">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base flex items-center gap-1.5 text-destructive">
+              <AlertTriangle className="w-4 h-4" /> Danger Zone
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              Deactivating this canal will hide it from the dashboard and stop
+              accepting new data from the IIMS device. This action can be reversed
+              by contacting a super admin.
+            </p>
 
-          {!showDeleteConfirm ? (
-            <Button
-              variant="destructive"
-              onClick={() => setShowDeleteConfirm(true)}
-            >
-              <Trash2 className="w-4 h-4 mr-1.5" />
-              Delete Canal
-            </Button>
-          ) : (
-            <div className="space-y-3 p-4 rounded-lg border border-destructive/30 bg-destructive/5">
-              <p className="text-sm font-medium">
-                Type{" "}
-                <code className="px-1.5 py-0.5 rounded bg-muted font-mono text-xs">
-                  {canal.canalId}
-                </code>{" "}
-                to confirm deletion:
-              </p>
-              <Input
-                value={deleteConfirmText}
-                onChange={(e) => setDeleteConfirmText(e.target.value)}
-                placeholder={canal.canalId}
-                className="max-w-sm font-mono text-sm"
-              />
-              {deleteError && (
-                <p className="text-sm text-destructive">{deleteError}</p>
-              )}
-              <div className="flex gap-2">
-                <Button
-                  variant="destructive"
-                  disabled={deleteConfirmText !== canal.canalId || deleting}
-                  onClick={handleDeleteCanal}
-                >
-                  {deleting ? (
-                    <>
-                      <Loader2 className="w-4 h-4 mr-1.5 animate-spin" />
-                      Deleting…
-                    </>
-                  ) : (
-                    <>
-                      <Trash2 className="w-4 h-4 mr-1.5" />
-                      Confirm Delete
-                    </>
-                  )}
-                </Button>
-                <Button
-                  variant="outline"
-                  onClick={() => {
-                    setShowDeleteConfirm(false);
-                    setDeleteConfirmText("");
-                    setDeleteError(null);
-                  }}
-                >
-                  Cancel
-                </Button>
+            {!showDeleteConfirm ? (
+              <Button
+                variant="destructive"
+                onClick={() => setShowDeleteConfirm(true)}
+              >
+                <Trash2 className="w-4 h-4 mr-1.5" />
+                Delete Canal
+              </Button>
+            ) : (
+              <div className="space-y-3 p-4 rounded-lg border border-destructive/30 bg-destructive/5">
+                <p className="text-sm font-medium">
+                  Type{" "}
+                  <code className="px-1.5 py-0.5 rounded bg-muted font-mono text-xs">
+                    {canal.canalId}
+                  </code>{" "}
+                  to confirm deletion:
+                </p>
+                <Input
+                  value={deleteConfirmText}
+                  onChange={(e) => setDeleteConfirmText(e.target.value)}
+                  placeholder={canal.canalId}
+                  className="max-w-sm font-mono text-sm"
+                />
+                {deleteError && (
+                  <p className="text-sm text-destructive">{deleteError}</p>
+                )}
+                <div className="flex gap-2">
+                  <Button
+                    variant="destructive"
+                    disabled={deleteConfirmText !== canal.canalId || deleting}
+                    onClick={handleDeleteCanal}
+                  >
+                    {deleting ? (
+                      <>
+                        <Loader2 className="w-4 h-4 mr-1.5 animate-spin" />
+                        Deleting…
+                      </>
+                    ) : (
+                      <>
+                        <Trash2 className="w-4 h-4 mr-1.5" />
+                        Confirm Delete
+                      </>
+                    )}
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      setShowDeleteConfirm(false);
+                      setDeleteConfirmText("");
+                      setDeleteError(null);
+                    }}
+                  >
+                    Cancel
+                  </Button>
+                </div>
               </div>
-            </div>
-          )}
-        </CardContent>
-      </Card>
+            )}
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }

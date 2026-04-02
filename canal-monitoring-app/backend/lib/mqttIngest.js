@@ -3,6 +3,7 @@ const {
   processMqttReading,
   processRegisterMessage,
 } = require("./readingProcessor");
+const DeviceSettings = require("../models/DeviceSettings");
 
 const defaults = {
   brokerUrl: process.env.MQTT_BROKER_URL || "mqtt://broker.hivemq.com:1883",
@@ -42,6 +43,8 @@ const stats = {
   lastMessageAt: null,
   lastError: null,
 };
+
+const DEFAULT_SEND_INTERVAL_MS = 30 * 60 * 1000;
 
 function topicDeviceId(topic) {
   const parts = String(topic || "").split("/");
@@ -135,6 +138,57 @@ function rememberDeviceSettings(deviceId, payload, topic = null) {
   return record;
 }
 
+async function persistDeviceSettings(record, source = "api") {
+  if (!record?.deviceId) return;
+
+  const update = {
+    deviceId: record.deviceId,
+    topic: record.topic || undefined,
+    source,
+    updatedAt: new Date(),
+  };
+
+  const interval = Number(record.sendIntervalMs);
+  if (Number.isFinite(interval) && interval > 0) {
+    update.sendIntervalMs = Math.round(interval);
+  }
+
+  if (record.forceReadNow !== undefined) {
+    update.forceReadNow = Boolean(record.forceReadNow);
+  }
+
+  const canalId = String(record.canalId || "").trim().toLowerCase();
+  if (canalId) {
+    update.canalId = canalId;
+  }
+
+  await DeviceSettings.findOneAndUpdate(
+    { deviceId: record.deviceId },
+    { $set: update, $setOnInsert: { deviceId: record.deviceId } },
+    { upsert: true, new: true },
+  );
+}
+
+async function restoreDeviceSettingsFromDb() {
+  const docs = await DeviceSettings.find({}).lean();
+
+  for (const doc of docs) {
+    const record = rememberDeviceSettings(doc.deviceId, doc, doc.topic || null);
+    if (!record) continue;
+
+    record.updatedAt = doc.updatedAt
+      ? new Date(doc.updatedAt).toISOString()
+      : record.updatedAt;
+    if (doc.canalId) {
+      record.canalId = doc.canalId;
+    }
+
+    latestSettingsByDevice.set(record.deviceId, record);
+  }
+
+  return docs.length;
+}
+
 function parsePayload(buffer) {
   const raw = String(buffer || "").trim();
   if (!raw) return null;
@@ -194,7 +248,16 @@ async function handleTopicMessage(topic, payload) {
     if (/^canal\/[^/]+\/settings$/.test(topic)) {
       const topicParts = String(topic).split("/");
       const deviceId = topicParts[1];
-      rememberDeviceSettings(deviceId, parsed, topic);
+      const record = rememberDeviceSettings(deviceId, parsed, topic);
+      if (record) {
+        persistDeviceSettings(record, "mqtt").catch((error) => {
+          stats.lastError = error.message;
+          console.error(
+            "[MQTT] Failed to persist inbound device settings:",
+            error.message,
+          );
+        });
+      }
       stats.accepted += 1;
       return;
     }
@@ -211,6 +274,21 @@ async function start() {
   if (client && publisherClient) return;
 
   stats.startedAt = new Date().toISOString();
+
+  try {
+    const restoredCount = await restoreDeviceSettingsFromDb();
+    if (restoredCount > 0) {
+      console.log(
+        `[MQTT] Restored ${restoredCount} device setting records from DB`,
+      );
+    }
+  } catch (error) {
+    stats.lastError = error.message;
+    console.error(
+      "[MQTT] Failed to restore persisted device settings:",
+      error.message,
+    );
+  }
 
   client = mqtt.connect(defaults.brokerUrl, {
     clientId: defaults.clientId,
@@ -344,7 +422,16 @@ async function publishDeviceSettings(deviceId, payload) {
           return resolve({ ok: false, message: error.message, topic });
         }
 
-        rememberDeviceSettings(deviceId, payload, topic);
+        const record = rememberDeviceSettings(deviceId, payload, topic);
+        if (record) {
+          persistDeviceSettings(record, "api").catch((persistError) => {
+            stats.lastError = persistError.message;
+            console.error(
+              "[MQTT] Failed to persist published device settings:",
+              persistError.message,
+            );
+          });
+        }
 
         return resolve({ ok: true, topic, payload });
       },
@@ -356,6 +443,22 @@ function getDeviceSettings(deviceId) {
   const normalized = String(deviceId || "").trim();
   if (!normalized) return null;
   return latestSettingsByDevice.get(normalized) || null;
+}
+
+function getEffectiveSendIntervalMs(
+  deviceId,
+  fallbackMs = DEFAULT_SEND_INTERVAL_MS,
+) {
+  const settings = getDeviceSettings(deviceId);
+  const configured = Number(settings?.sendIntervalMs);
+  if (Number.isFinite(configured) && configured > 0) {
+    return Math.round(configured);
+  }
+
+  const fallback = Number(fallbackMs);
+  return Number.isFinite(fallback) && fallback > 0
+    ? Math.round(fallback)
+    : DEFAULT_SEND_INTERVAL_MS;
 }
 
 function getStatus() {
@@ -378,5 +481,6 @@ module.exports = {
   stop,
   publishDeviceSettings,
   getDeviceSettings,
+  getEffectiveSendIntervalMs,
   getStatus,
 };

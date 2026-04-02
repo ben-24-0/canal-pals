@@ -7,8 +7,11 @@ import {
   Home,
   Map,
   PlusSquare,
+  Settings,
+  ShieldCheck,
   LogOut,
   User,
+  Users,
   ChevronLeft,
   ChevronRight,
 } from "lucide-react";
@@ -17,18 +20,36 @@ import { useEffect, useState } from "react";
 const navItems = [
   { href: "/app", icon: Home, label: "Canal Modules" },
   { href: "/app/map", icon: Map, label: "Map View" },
+  { href: "/app/account-settings", icon: Settings, label: "Account Settings" },
 ];
 
 const adminItems = [
   { href: "/app/admin/add-module", icon: PlusSquare, label: "Add Module" },
+  { href: "/app/admin/users", icon: Users, label: "Manage Users" },
+];
+
+const superAdminItems = [
+  {
+    href: "/app/admin/super-admin",
+    icon: ShieldCheck,
+    label: "Super Admin",
+  },
 ];
 
 export default function Sidebar() {
   const pathname = usePathname();
   const { data: session } = useSession();
   const [collapsed, setCollapsed] = useState(true);
-  const isAdmin = session?.user?.role === "admin";
-  const mobileItems = isAdmin ? [...navItems, ...adminItems] : navItems;
+  const role = session?.user?.role;
+  const isAdmin = role === "admin" || role === "superadmin";
+  const isSuperAdmin = role === "superadmin";
+  const adminOnlyItemsForRole = isSuperAdmin
+    ? adminItems.filter(({ href }) => href !== "/app/admin/users")
+    : adminItems;
+  const adminNavItems = isSuperAdmin
+    ? [...adminOnlyItemsForRole, ...superAdminItems]
+    : adminOnlyItemsForRole;
+  const mobileItems = isAdmin ? [...navItems, ...adminNavItems] : navItems;
 
   useEffect(() => {
     const forceCollapsedOnSmallerScreens = () => {
@@ -117,7 +138,7 @@ export default function Sidebar() {
                 </p>
               )}
               {!collapsed && <div className="border-t border-border mb-1" />}
-              {adminItems.map(({ href, icon: Icon, label }) => (
+              {adminNavItems.map(({ href, icon: Icon, label }) => (
                 <Link
                   key={href}
                   href={href}
@@ -188,14 +209,13 @@ export default function Sidebar() {
               href={href}
               title={label}
               aria-label={label}
-              className={`flex flex-col items-center justify-center gap-1 py-2 text-[11px] font-medium ${
+              className={`flex items-center justify-center py-3 ${
                 isActive(href)
                   ? "text-primary bg-primary/10"
                   : "text-muted-foreground"
               }`}
             >
               <Icon size={16} className="shrink-0" />
-              <span className="truncate">{label}</span>
             </Link>
           ))}
 
@@ -203,10 +223,9 @@ export default function Sidebar() {
             onClick={handleSignOut}
             title="Sign out"
             aria-label="Sign out"
-            className="flex flex-col items-center justify-center gap-1 py-2 text-[11px] font-medium text-muted-foreground"
+            className="flex items-center justify-center py-3 text-muted-foreground"
           >
             <LogOut size={16} className="shrink-0" />
-            <span>Sign out</span>
           </button>
         </div>
       </nav>
