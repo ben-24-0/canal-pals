@@ -111,6 +111,15 @@ MQTT_REGISTER_TOPIC=canal/iims/poseidon/register
 MQTT_STATUS_TOPIC=canal/+/status
 ```
 
+Mobile JWT auth (for Flutter/mobile clients):
+
+```env
+MOBILE_JWT_ACCESS_SECRET=replace-with-strong-random-secret
+MOBILE_JWT_REFRESH_SECRET=replace-with-strong-random-secret
+MOBILE_JWT_ACCESS_EXPIRES=15m
+MOBILE_JWT_REFRESH_EXPIRES=30d
+```
+
 Buffer flush:
 
 ```env
@@ -148,6 +157,15 @@ GET /api/dashboard/metrics
 GET /api/dashboard/timeseries/:canalId
 GET /api/dashboard/alerts
 GET /api/dashboard/stats
+```
+
+Mobile auth (JSON token flow, no cookie dependency):
+
+```http
+POST /api/mobile-auth/login
+POST /api/mobile-auth/refresh
+POST /api/mobile-auth/logout
+GET  /api/mobile-auth/me
 ```
 
 System:
@@ -237,6 +255,44 @@ The frontend now receives and highlights:
 - Manning velocity (speed)
 
 Flow and discharge remain available as secondary metrics.
+
+## Mobile Auth Notes (Flutter)
+
+- Existing web login and NextAuth session flow remain unchanged.
+- Mobile auth uses Bearer JWT access tokens + refresh tokens in JSON.
+- Refresh tokens are stored hashed in MongoDB (`mobile_refresh_tokens`) and revoked on logout.
+- Supported mobile roles are currently `admin` and `user`.
+
+Example login:
+
+```bash
+curl -X POST http://localhost:3001/api/mobile-auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"user@example.com","password":"your-password"}'
+```
+
+Example refresh:
+
+```bash
+curl -X POST http://localhost:3001/api/mobile-auth/refresh \
+  -H "Content-Type: application/json" \
+  -d '{"refreshToken":"<refresh-token-from-login>"}'
+```
+
+Example me:
+
+```bash
+curl http://localhost:3001/api/mobile-auth/me \
+  -H "Authorization: Bearer <access-token-from-login-or-refresh>"
+```
+
+Example logout:
+
+```bash
+curl -X POST http://localhost:3001/api/mobile-auth/logout \
+  -H "Content-Type: application/json" \
+  -d '{"refreshToken":"<refresh-token-to-revoke>"}'
+```
 
 ## Troubleshooting
 

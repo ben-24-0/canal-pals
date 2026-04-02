@@ -85,6 +85,7 @@ const esp32Routes = require("./routes/esp32");
 const canalRoutes = require("./routes/canals");
 const dashboardRoutes = require("./routes/dashboard");
 const authRoutes = require("./routes/auth");
+const mobileAuthRoutes = require("./routes/mobileAuth");
 const adminRoutes = require("./routes/admin");
 const superAdminRoutes = require("./routes/superAdmin");
 const streamRoutes = require("./routes/stream");
@@ -96,6 +97,7 @@ app.use("/api/esp32", esp32Routes);
 app.use("/api/canals", canalRoutes);
 app.use("/api/dashboard", dashboardRoutes);
 app.use("/api/auth", authRoutes);
+app.use("/api/mobile-auth", mobileAuthRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/super-admin", superAdminRoutes);
 app.use("/api/stream", streamRoutes);
@@ -188,9 +190,12 @@ const startServer = async () => {
   });
 };
 
-startServer().catch((error) => {
-  console.error("Failed to start server:", error);
-  process.exit(1);
-});
+if (require.main === module) {
+  startServer().catch((error) => {
+    console.error("Failed to start server:", error);
+    process.exit(1);
+  });
+}
 
 module.exports = app;
+module.exports.startServer = startServer;
