@@ -90,7 +90,10 @@ function createAppAndState() {
 
   const authHelpers = {
     async authenticateUserCredentials(_UserModel, email, password) {
-      if (String(email).toLowerCase().trim() !== user.email || password !== "pass123") {
+      if (
+        String(email).toLowerCase().trim() !== user.email ||
+        password !== "pass123"
+      ) {
         return { ok: false, status: 401, error: "Invalid credentials" };
       }
       return { ok: true, user };
@@ -127,7 +130,9 @@ function createAppAndState() {
   const requireMobileJwtAuth = (req, res, next) => {
     const header = String(req.headers.authorization || "").trim();
     if (header !== "Bearer valid-access-token") {
-      return res.status(401).json({ error: "Unauthorized", message: "Invalid or expired token" });
+      return res
+        .status(401)
+        .json({ error: "Unauthorized", message: "Invalid or expired token" });
     }
 
     req.user = {
@@ -257,5 +262,8 @@ test("POST /api/mobile-auth/logout revokes refresh token", async () => {
     .send({ refreshToken: login.body.refreshToken });
 
   assert.equal(refreshAfterLogout.status, 401);
-  assert.equal(refreshAfterLogout.body.error, "Invalid or expired refresh token");
+  assert.equal(
+    refreshAfterLogout.body.error,
+    "Invalid or expired refresh token",
+  );
 });

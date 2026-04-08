@@ -48,7 +48,10 @@ function parseExpiryToSeconds(value, fallbackSeconds) {
 const ACCESS_EXPIRES_SECONDS = parseExpiryToSeconds(ACCESS_EXPIRES_IN, 15 * 60);
 
 function hashToken(rawToken) {
-  return crypto.createHash("sha256").update(String(rawToken || "")).digest("hex");
+  return crypto
+    .createHash("sha256")
+    .update(String(rawToken || ""))
+    .digest("hex");
 }
 
 function issueMobileAccessToken(user) {

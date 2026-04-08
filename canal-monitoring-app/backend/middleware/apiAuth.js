@@ -5,7 +5,7 @@ const JWT_SECRET =
   process.env.AUTH_JWT_SECRET ||
   process.env.JWT_SECRET ||
   "local-dev-secret-change-me";
-const JWT_EXPIRES_IN = process.env.AUTH_JWT_EXPIRES_IN || "12h";
+const JWT_EXPIRES_IN = process.env.AUTH_JWT_EXPIRES_IN || "30d";
 
 function issueApiToken(user) {
   return jwt.sign(

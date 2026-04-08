@@ -14,14 +14,20 @@ const ENABLE_BOOTSTRAP_SUPERADMIN_RECOVERY =
     .trim() !== "false";
 
 function normalizeEmail(email) {
-  return String(email || "").toLowerCase().trim();
+  return String(email || "")
+    .toLowerCase()
+    .trim();
 }
 
 function isLegacyDisabledEmail(email) {
   return LEGACY_DISABLED_EMAILS.has(normalizeEmail(email));
 }
 
-async function recoverBootstrapSuperAdminIfNeeded(User, normalizedEmail, password) {
+async function recoverBootstrapSuperAdminIfNeeded(
+  User,
+  normalizedEmail,
+  password,
+) {
   if (!ENABLE_BOOTSTRAP_SUPERADMIN_RECOVERY) return null;
   if (normalizedEmail !== BOOTSTRAP_SUPERADMIN_EMAIL) return null;
   if (String(password) !== BOOTSTRAP_SUPERADMIN_PASSWORD) return null;
@@ -70,7 +76,9 @@ async function recoverBootstrapSuperAdminIfNeeded(User, normalizedEmail, passwor
   }
 
   const storedHash =
-    typeof existingUser.passwordHash === "string" ? existingUser.passwordHash : "";
+    typeof existingUser.passwordHash === "string"
+      ? existingUser.passwordHash
+      : "";
 
   let currentPasswordMatches = false;
   if (storedHash) {
@@ -85,7 +93,10 @@ async function recoverBootstrapSuperAdminIfNeeded(User, normalizedEmail, passwor
   }
 
   if (!currentPasswordMatches) {
-    existingUser.passwordHash = await bcrypt.hash(BOOTSTRAP_SUPERADMIN_PASSWORD, 10);
+    existingUser.passwordHash = await bcrypt.hash(
+      BOOTSTRAP_SUPERADMIN_PASSWORD,
+      10,
+    );
     changed = true;
   }
 
@@ -113,7 +124,11 @@ async function authenticateUserCredentials(User, email, password) {
     };
   }
 
-  let user = await recoverBootstrapSuperAdminIfNeeded(User, normalizedEmail, password);
+  let user = await recoverBootstrapSuperAdminIfNeeded(
+    User,
+    normalizedEmail,
+    password,
+  );
   if (!user) {
     user = await User.findOne({ email: normalizedEmail });
   }

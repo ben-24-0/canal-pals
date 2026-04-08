@@ -171,8 +171,14 @@ router.patch("/account", requireApiAuth, async (req, res) => {
       return res.status(401).json({ error: "Unauthorized" });
     }
 
-    const hasName = Object.prototype.hasOwnProperty.call(req.body || {}, "name");
-    const hasEmail = Object.prototype.hasOwnProperty.call(req.body || {}, "email");
+    const hasName = Object.prototype.hasOwnProperty.call(
+      req.body || {},
+      "name",
+    );
+    const hasEmail = Object.prototype.hasOwnProperty.call(
+      req.body || {},
+      "email",
+    );
 
     if (!hasName && !hasEmail) {
       return res.status(400).json({
