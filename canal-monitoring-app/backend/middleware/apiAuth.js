@@ -106,9 +106,22 @@ function requireRoles(...allowedRoles) {
   };
 }
 
+/**
+ * Verify a token's signature without rejecting expired tokens.
+ * Returns the decoded payload or null on any error.
+ */
+function verifyApiTokenIgnoringExpiry(token) {
+  try {
+    return jwt.verify(token, JWT_SECRET, { ignoreExpiration: true });
+  } catch {
+    return null;
+  }
+}
+
 module.exports = {
   issueApiToken,
   readBearerToken,
   requireApiAuth,
   requireRoles,
+  verifyApiTokenIgnoringExpiry,
 };

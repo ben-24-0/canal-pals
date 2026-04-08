@@ -1,6 +1,43 @@
 import NextAuth from "next-auth";
 import Credentials from "next-auth/providers/credentials";
 
+/** Decode a JWT payload without verifying the signature. */
+function decodeJwtPayload(token: string): Record<string, unknown> | null {
+  try {
+    const part = token.split(".")[1];
+    if (!part) return null;
+    return JSON.parse(Buffer.from(part, "base64url").toString("utf8"));
+  } catch {
+    return null;
+  }
+}
+
+/** Returns true if the JWT has already expired. */
+function isApiTokenExpired(token: string): boolean {
+  const payload = decodeJwtPayload(token);
+  if (!payload || typeof payload.exp !== "number") return true;
+  return payload.exp * 1000 < Date.now();
+}
+
+/** Call the backend to exchange a (possibly expired) apiToken for a fresh one. */
+async function refreshApiToken(expiredToken: string): Promise<string | null> {
+  try {
+    const apiUrl =
+      process.env.NEXT_PUBLIC_BACKEND_URL ||
+      process.env.NEXT_PUBLIC_API_URL ||
+      "http://localhost:3001";
+    const res = await fetch(`${apiUrl}/api/auth/reissue`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${expiredToken}` },
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return typeof data.apiToken === "string" ? data.apiToken : null;
+  } catch {
+    return null;
+  }
+}
+
 export const { handlers, auth, signIn, signOut } = NextAuth({
   providers: [
     Credentials({
@@ -47,11 +84,22 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
   callbacks: {
     async jwt({ token, user }) {
       if (user) {
+        // Initial sign-in: populate token from the user returned by authorize()
         token.id = user.id;
         token.role = (
           user as { id: string; role: "user" | "admin" | "superadmin" }
         ).role;
         token.apiToken = (user as { apiToken?: string }).apiToken;
+      } else if (
+        typeof token.apiToken === "string" &&
+        token.apiToken &&
+        isApiTokenExpired(token.apiToken)
+      ) {
+        // apiToken has expired — silently refresh it so the session stays alive
+        const fresh = await refreshApiToken(token.apiToken);
+        if (fresh) {
+          token.apiToken = fresh;
+        }
       }
       return token;
     },
@@ -90,5 +138,9 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
   },
   session: {
     strategy: "jwt",
+    // Session cookie lasts 7 days; the apiToken is silently refreshed each
+    // time the jwt callback fires (on every request), so users stay logged in
+    // as long as their account remains active.
+    maxAge: 7 * 24 * 60 * 60,
   },
 });

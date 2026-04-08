@@ -2,7 +2,7 @@ const express = require("express");
 const bcrypt = require("bcryptjs");
 const User = require("../models/User");
 const AuthLog = require("../models/AuthLog");
-const { issueApiToken, requireApiAuth } = require("../middleware/apiAuth");
+const { issueApiToken, requireApiAuth, verifyApiTokenIgnoringExpiry } = require("../middleware/apiAuth");
 const {
   LEGACY_DISABLED_EMAILS,
   authenticateUserCredentials,
@@ -122,6 +122,47 @@ router.post("/login", async (req, res) => {
     });
   } catch (error) {
     console.error("Login error:", error);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// POST /api/auth/reissue — silently refresh an expired apiToken without re-entering credentials.
+// Accepts the current Bearer token (even if expired) and, after verifying the signature
+// and confirming the user is still active, issues a fresh token.
+router.post("/reissue", async (req, res) => {
+  try {
+    const authHeader = String(req.headers.authorization || "").trim();
+    const [scheme, token] = authHeader.split(" ");
+    if (!/^Bearer$/i.test(scheme) || !token) {
+      return res.status(401).json({ error: "Missing Bearer token" });
+    }
+
+    const decoded = verifyApiTokenIgnoringExpiry(token);
+    if (!decoded) {
+      return res.status(401).json({ error: "Invalid token" });
+    }
+
+    const userId = decoded?.sub || decoded?.id;
+    if (!userId) {
+      return res.status(401).json({ error: "Invalid token payload" });
+    }
+
+    const user = await User.findById(userId)
+      .select("_id name email role isApproved")
+      .lean();
+
+    if (!user) {
+      return res.status(401).json({ error: "User not found" });
+    }
+
+    if (user.role !== "superadmin" && !user.isApproved) {
+      return res.status(403).json({ error: "Account not approved" });
+    }
+
+    const apiToken = issueApiToken(user);
+    return res.json({ apiToken });
+  } catch (error) {
+    console.error("Reissue error:", error);
     return res.status(500).json({ error: "Internal server error" });
   }
 });
