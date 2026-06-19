@@ -1,5 +1,5 @@
 const express = require("express");
-const bcrypt = require("bcryptjs");
+const bcrypt = require("../lib/passwordHasher");
 const User = require("../models/User");
 const AuthLog = require("../models/AuthLog");
 const { issueApiToken, requireApiAuth } = require("../middleware/apiAuth");
@@ -110,7 +110,9 @@ router.post("/login", async (req, res) => {
     // Return user profile (never return passwordHash)
     const apiToken = issueApiToken(user);
 
-    await writeLoginAudit(AuthLog, user, req);
+    writeLoginAudit(AuthLog, user, req).catch((error) => {
+      console.error("Non-fatal: Failed to write login audit", error);
+    });
 
     return res.json({
       id: user._id.toString(),

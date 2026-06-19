@@ -162,6 +162,93 @@ router.get("/metrics", async (req, res) => {
   }
 });
 
+// GET /api/dashboard/map-latest - latest reading for each active canal (single DB query)
+router.get("/map-latest", async (req, res) => {
+  try {
+    const includeNoReading = String(req.query.includeNoReading || "true") !== "false";
+
+    const rows = await Canal.aggregate([
+      {
+        $match: {
+          isActive: true,
+        },
+      },
+      {
+        $project: {
+          _id: 0,
+          canalId: 1,
+          name: 1,
+          type: 1,
+          location: 1,
+          sensorType: 1,
+          esp32DeviceId: 1,
+        },
+      },
+      {
+        $lookup: {
+          from: "canal_readings",
+          let: { cid: "$canalId" },
+          pipeline: [
+            {
+              $match: {
+                $expr: { $eq: ["$canalId", "$$cid"] },
+              },
+            },
+            { $sort: { timestamp: -1 } },
+            { $limit: 1 },
+            {
+              $project: {
+                _id: 0,
+                canalId: 1,
+                timestamp: 1,
+                receivedAt: 1,
+                status: 1,
+                flowRate: 1,
+                speed: 1,
+                discharge: 1,
+                depth: 1,
+                waterLevel: 1,
+                temperature: 1,
+                batteryLevel: 1,
+                signalStrength: 1,
+                sensorType: 1,
+              },
+            },
+          ],
+          as: "latestReading",
+        },
+      },
+      {
+        $addFields: {
+          latestReading: { $arrayElemAt: ["$latestReading", 0] },
+        },
+      },
+      {
+        $match: includeNoReading
+          ? {}
+          : {
+              latestReading: { $ne: null },
+            },
+      },
+      { $sort: { name: 1 } },
+    ]);
+
+    res.json({
+      source: "mongodb-aggregate",
+      includeNoReading,
+      totalCanals: rows.length,
+      data: rows,
+      lastUpdated: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.error("Error fetching map latest readings:", error);
+    res.status(500).json({
+      error: "Failed to fetch map latest readings",
+      message: error.message,
+    });
+  }
+});
+
 // GET /api/dashboard/timeseries/:canalId - Get time series data for specific canal
 router.get("/timeseries/:canalId", async (req, res) => {
   try {

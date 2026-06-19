@@ -14,8 +14,8 @@ import Footer from "../components/Footer";
 const monitoredCanals = ["Ezhattumugam Irrigation Canal"];
 
 const heroImages = [
-  "/Dewatermark_1774199757142.png",
-  "/Gemini_Generated_Image_ca4y4aca4y4aca4y.png",
+  "/Dewatermark_1774199757142.jpg",
+  "/Hero1.jpg",
 ];
 
 const governanceCards = [
@@ -44,28 +44,81 @@ const governanceCards = [
 export default function HomePage() {
   const [activeCanalIndex, setActiveCanalIndex] = useState(0);
   const [activeHeroIndex, setActiveHeroIndex] = useState(0);
+  const [imagesLoaded, setImagesLoaded] = useState(false); // Added loading state
 
+  // Preload Hero Images
+  useEffect(() => {
+    let isMounted = true;
+    let loadedCount = 0;
+
+    const preloadImages = () => {
+      heroImages.forEach((src) => {
+        const img = new window.Image();
+
+        img.onload = () => {
+          if (!isMounted) return;
+          loadedCount++;
+          if (loadedCount === heroImages.length) {
+            setImagesLoaded(true);
+          }
+        };
+        
+        img.onerror = () => {
+          if (!isMounted) return;
+          // Fallback: increment anyway to prevent the loader from hanging indefinitely 
+          loadedCount++;
+          if (loadedCount === heroImages.length) {
+            setImagesLoaded(true);
+          }
+        };
+
+        img.src = src;
+      });
+    };
+
+    preloadImages();
+
+    return () => {
+      isMounted = false; // Cleanup to prevent state updates on unmounted components
+    };
+  }, []);
+
+  // Canal cycling timer
   useEffect(() => {
     const timer = window.setInterval(() => {
       setActiveCanalIndex((prev) => (prev + 1) % monitoredCanals.length);
     }, 2800);
-
     return () => window.clearInterval(timer);
   }, []);
 
+  // Hero image cycling timer
   useEffect(() => {
     const heroTimer = window.setInterval(() => {
       setActiveHeroIndex((prev) => (prev + 1) % heroImages.length);
     }, 4200);
-
     return () => window.clearInterval(heroTimer);
   }, []);
 
   return (
-    <div className="min-h-screen flex flex-col bg-background text-foreground">
+    <div className="flex min-h-screen flex-col bg-background text-foreground">
       <Navbar />
 
-      <section className="relative h-[50vh] w-full overflow-hidden">
+      <section className="relative h-[50vh] w-full overflow-hidden bg-[#0d3a6b]">
+        {/* Loader Overlay */}
+        {!imagesLoaded && (
+          <div className="absolute inset-0 z-50 flex items-center justify-center bg-[#0f3f73]">
+            <div className="relative flex h-28 w-28 items-center justify-center rounded-full bg-white shadow-[0_10px_30px_rgba(0,0,0,0.18)]">
+              <div className="h-20 w-20 rounded-full border-4 border-[#0d3a6b] border-t-transparent animate-spin" />
+              <img
+                src="/logo.jpg"
+                alt="Loading..."
+                className="absolute h-11 w-11 object-contain"
+              />
+            </div>
+          </div>
+        )}
+
+        {/* Hero Background Images */}
         {heroImages.map((image, index) => (
           <div
             key={image}
@@ -88,20 +141,6 @@ export default function HomePage() {
               engineering and embedded sensing to deliver live flow visibility,
               faster blockage detection, and better water allocation decisions.
             </p>
-            {/* <div className="mt-6 flex flex-wrap items-center gap-3">
-              <Link
-                href="/login"
-                className="rounded-lg bg-white px-4 py-2 text-sm font-semibold text-[#0d3a6b] hover:bg-blue-100"
-              >
-                Officer Login
-              </Link>
-              <Link
-                href="/map"
-                className="rounded-lg border border-white px-4 py-2 text-sm font-semibold text-white hover:bg-white/15"
-              >
-                Open Water Structures Map
-              </Link>
-            </div> */}
           </div>
         </div>
 

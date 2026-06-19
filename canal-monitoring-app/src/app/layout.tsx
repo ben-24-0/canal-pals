@@ -18,9 +18,9 @@ export const metadata: Metadata = {
   title: "Intelligent Irrigation Monitoring System",
   description: "Real-time canal monitoring with intelligent field sensing",
   icons: {
-    icon: "/logo.png",
-    shortcut: "/logo.png",
-    apple: "/logo.png",
+    icon: "/logo.jpg",
+    shortcut: "/logo.jpg",
+    apple: "/logo.jpg",
   },
 };
 

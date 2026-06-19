@@ -1,5 +1,5 @@
 const express = require("express");
-const bcrypt = require("bcryptjs");
+const bcrypt = require("../lib/passwordHasher");
 const mongoose = require("mongoose");
 const { body, validationResult } = require("express-validator");
 

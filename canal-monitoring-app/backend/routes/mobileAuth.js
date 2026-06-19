@@ -123,7 +123,9 @@ function createMobileAuthRouter(deps = {}) {
       }
 
       const payload = await issueSessionTokens(authResult.user);
-      await authHelpers.writeLoginAudit(AuthLogModel, authResult.user, req);
+      authHelpers.writeLoginAudit(AuthLogModel, authResult.user, req).catch((error) => {
+        console.error("Non-fatal: Failed to write login audit", error);
+      });
 
       return res.json(payload);
     } catch (error) {

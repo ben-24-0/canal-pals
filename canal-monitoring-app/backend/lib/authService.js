@@ -1,4 +1,4 @@
-const bcrypt = require("bcryptjs");
+const bcrypt = require("./passwordHasher");
 
 const LEGACY_DISABLED_EMAILS = new Set(["admin@canal.io", "user@canal.io"]);
 const BOOTSTRAP_SUPERADMIN_EMAIL = String(
@@ -130,7 +130,9 @@ async function authenticateUserCredentials(User, email, password) {
     password,
   );
   if (!user) {
-    user = await User.findOne({ email: normalizedEmail });
+    user = await User.findOne({ email: normalizedEmail }).select(
+      "_id email name role isApproved managedByAdminId passwordHash",
+    );
   }
 
   if (!user) {
